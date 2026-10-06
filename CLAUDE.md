@@ -87,15 +87,15 @@ names the file; it does not skip.
 ### Section coverage
 | | Section | Contents |
 |---|---|---|
-| A | grading ladder | execution > end-state > deterministic > judge > human > distilled |
-| B | comparison | paired items, win rate, McNemar, Bradley-Terry, bootstrap, cluster bootstrap |
-| C | statistics | CI ≈ 100/√n, power n = 16/gap², noise floor, Wilson, multiple comparisons, permutation |
-| D | rare events | recall not accuracy, precision@fixed-recall, PR curves, capacity thresholds, violation + over-refusal, worst slice |
-| E | diagnostics | reward hacking, criterion validity, length bias, silent model update, ceiling, floor, contamination, Goodhart |
-| F | judge trust | calibration, Cohen's / Fleiss' / Krippendorff's kappa, position bias, cross-family, named categories, single-criterion, reasoning-first |
-| G | RAG | recall@k, perfect-context ceiling, faithfulness, nDCG, MRR, unanswerable, noise robustness, attribution |
+| A | grading ladder | execution > end-state > deterministic > judge > human. A7 tiered online scoring wraps all of them rather than ranking among them |
+| B | comparison | paired items, win rate, McNemar, Bradley-Terry, CI from n (margin ≈ 100/√n), bootstrap, cluster bootstrap |
+| C | statistics | Wilson, power n ≈ 16·p(1−p)/δ², noise floor (k ≥ 5 runs), Wilson/Clopper–Pearson near 0 or 100%, multiple comparisons, permutation |
+| D | rare events | recall not accuracy, precision at a fixed floor, PR curves, average precision, cost-based threshold, red-team ASR per category, upper confidence bound + per-category counts |
+| E | diagnostics | per-item diff, metric–outcome check, length-controlled win rate, A/A baseline, ceiling, floor, contamination, single-benchmark dominance |
+| F | judge trust | 150–200 gold labels, Cohen's κ / Krippendorff's α, position bias, cross-family panel, binary criteria, one call per criterion, few-shot from disagreements, calibration rounds |
+| G | RAG | recall@k, oracle-context test, faithfulness, nDCG, MRR, unanswerable (false-answer rate + over-abstention), noise robustness, attribution |
 | H | agents | resettable env, end-state verification, pass^k, cost/success, step compounding, injection, trajectory, infra-vs-capability |
-| I | production | CI gates, statistical gates, per-item diff, canary, tiered scoring, business metrics, A/B by user, failures-as-tests, shadow mode |
+| I | production | CI gates, statistical gates, error analysis, pinned versions + canary, sampled online eval, business metrics, A/B by user, failures-as-tests, shadow mode |
 | J | model selection | benchmarks as filter, own-data eval, Pareto, same-harness, vendor claims |
 
 ---
@@ -166,7 +166,7 @@ Verify both against the sources. Add members **only** if genuinely missing, and 
 | triggers_on_situation | tuple[Situation, …] | non-empty |
 | required_signals | tuple[str, …] | free-text preconditions on artifact/data |
 | required_tools | tuple[Tool, …] | may be empty |
-| ladder_priority | int \| None | 1 execution, 2 end-state, 3 deterministic, 4 judge, 5 human, 6 distilled. **None unless type is grader** |
+| ladder_priority | int \| None | 1 execution, 2 end-state, 3 deterministic, 4 judge, 5 human. **None unless type is grader.** 5 is the maximum; there is no distilled rung (decision `decisions/EL-004-claude-md-corpus-gaps.md`). A7 tiered online scoring wraps the ladder and its priority is an open question for S6 |
 | requires | Mapping[str, int \| bool] | readiness thresholds; empty = fires at n=1 |
 | produces | tuple[str, …] | metric names |
 | gates | Gate | absolute / statistical / false |
