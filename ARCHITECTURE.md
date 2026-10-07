@@ -469,7 +469,7 @@ Tracks O and V are parallel and independent — one is about *knowing what you'r
 ## 11. Decisions needed from you
 
 1. **§6.3 driver policy** — subprocess CLI (recommended), scoped dependency exception, or neither?
-2. ~~**Corpus location**~~ — **Resolved by `decisions/EL-001-corpus-location.md`:** the in-repo `knowledge rules/` directory is canonical, under its real filenames; `EVALLOOP_CORPUS` still overrides. `CLAUDE.md §4` and the `TASKS.md` `source_ref` convention were corrected, and a missing corpus file now fails the suite by name. **Still open:** the master lookup has a sixth column ("Real-world domain scenario") that `CLAUDE.md §4` and the `TASKS.md:103` field mapping both omit — it has no home in `TechniqueRecord`. Needs its own decision before T3 extraction.
+2. ~~**Corpus location**~~ — **Resolved by `decisions/EL-001-corpus-location.md`:** the in-repo `knowledge rules/` directory is canonical, under its real filenames; `EVALLOOP_CORPUS` still overrides. `CLAUDE.md §4` and the `TASKS.md` `source_ref` convention were corrected, and a missing corpus file now fails the suite by name. The sixth column ("Real-world domain scenario"), raised there and left open, is **resolved by `decisions/EL-011-sixth-column-mapping.md`:** it becomes `domain_scenario: str | None` on `TechniqueRecord`, copied verbatim at extraction and read by no planner code. `CLAUDE.md §4`, the `CLAUDE.md §6` field table and the `TASKS.md` field mapping now all account for six columns.
 3. **Track order after Gate 1** — O first (intent) or V first (demo)?
 4. **MCP server timing** — after Gate 3 as argued, or earlier accepting Goodhart risk?
 5. **Is Track X in or out?** It is the only track I would not build on current evidence.

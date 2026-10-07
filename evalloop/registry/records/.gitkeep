@@ -1,0 +1,4 @@
+# The ten section record files (A_grading.yaml ... J_model_selection.yaml) are
+# authored here by EL-110 to EL-112. This file exists so git tracks the empty
+# directory, so that tests/test_registry_integrity.py can tell "not authored
+# yet" (a trivial pass) apart from "the directory vanished" (a loud failure).

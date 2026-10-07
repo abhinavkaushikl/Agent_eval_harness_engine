@@ -6,9 +6,9 @@ Small, focused tasks, each verifiable in one sitting. Work **top to bottom**. Ea
 
 **Compact shared context (prepend to any task prompt):**
 > Project: EvalLoop, an autonomous evaluation system. Current phase: registry + planner only. No execution, no file watching, no LLM calls, no stats implementation.
-> Source corpus (read-only, in-repo): `knowledge rules/evals-situation-to-technique.md` (master lookup, ~70 techniques) and `knowledge rules/A-choosing-how-to-grade.md … J-choosing-a-model.md` (deep dives per section). Filenames are declared once in `tests/conftest.py`; import them, never retype them.
+> Source corpus (read-only, in-repo): `knowledge rules/evals-situation-to-technique.md` (master lookup, 73 techniques) and `knowledge rules/A-choosing-how-to-grade.md … J-choosing-a-model.md` (deep dives per section). Filenames are declared once in `tests/conftest.py`; import them, never retype them.
 > Sections: A grading · B comparison · C statistics · D rare events · E diagnostics · F judge trust · G RAG · H agents · I production · J model selection.
-> Rules: Python 3.12+, stdlib only (pytest dev-only OK). Type hints, mypy --strict clean. Never invent a number. Thresholds are verbatim from source or null.
+> Rules: Python 3.10+, stdlib only (pytest dev-only OK). Type hints, mypy --strict clean. Never invent a number. Thresholds are verbatim from source or null.
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
@@ -19,7 +19,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 ## Group 1 — Scaffold *(T0)*
 
 ### [x] S1 — Project skeleton
-- Create `pyproject.toml`: `requires-python >= 3.12`, no runtime deps, dev extras `pytest`, `mypy`. Add ruff-equivalent settings only if trivial.
+- Create `pyproject.toml`: `requires-python >= 3.10`, no runtime deps, dev extras `pytest`, `mypy`. Add ruff-equivalent settings only if trivial.
 - Package dirs `evalloop/{vocab,registry,plan}/`, each with `__init__.py`.
 - `tests/`, `.gitignore` (Python standard), `README.md` (≤ 15 lines: what it is, current phase, how to run tests).
 - `tests/test_scaffold.py` with one trivial passing test.
@@ -34,58 +34,59 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## Group 2 — Vocabularies *(T1)*
 
-### [ ] S3 — Situations enum
-- `evalloop/vocab/situations.py`: `StrEnum Situation` with five-plus comment-grouped families: ARTIFACT, MEASUREMENT, COMPARISON, GRADER_TRUST, DATA, LIFECYCLE.
+### [x] S3 — Situations enum
+- `evalloop/vocab/situations.py`: `StrEnum Situation` (import from `evalloop/_compat`, not `enum` -- EL-012) with five-plus comment-grouped families: ARTIFACT, MEASUREMENT, COMPARISON, GRADER_TRUST, DATA, LIFECYCLE.
 - Populate from the Situation column of the master lookup. Starting set is in `CLAUDE.md §6`.
 - Read all source files; every distinct "Situation" value and every "You are here when…" framing maps to exactly one member.
 - Member value == lowercase member name. Enum only, with no parse helpers yet.
 - Justify every addition beyond the starting set in a module docstring note.
 - **Done when:** enum imports; report lists any source situation that could not be represented.
 
-### [ ] S4 — Tools enum + parsers
-- `evalloop/vocab/tools.py`: `StrEnum Tool`: sandbox, test_runner, repo_read, source_doc_read, llm_api, llm_api_cross_family, vector_store, db_connection, ocr, vision_model, trace_capture, snapshot_restore, cost_api, human_labels, production_logs.
+### [x] S4 — Tools enum + parsers
+- `evalloop/vocab/tools.py`: `StrEnum Tool` (from `evalloop/_compat`): sandbox, test_runner, repo_read, source_doc_read, llm_api, llm_api_cross_family, vector_store, db_connection, ocr, vision_model, trace_capture, snapshot_restore, cost_api, human_labels, production_logs.
 - `evalloop/vocab/__init__.py` re-exports both, plus `parse_situation(str)` and `parse_tool(str)` raising `ValueError` that names the bad value and lists valid options.
 - **Done when:** both parsers round-trip every member and reject an unknown string with a helpful message.
 
-### [ ] S5 — Vocab tests
+### [x] S5 — Vocab tests
 - `tests/test_vocab.py`:
   - every member value == lowercase name
   - no duplicate values
   - `parse_*` raises with the offending value in the message
-  - coverage test: a hardcoded list of ~20 situation strings taken **verbatim** from the master lookup all parse successfully
+  - coverage test: a hardcoded mapping of ~20 situation strings taken **verbatim** from the master lookup, each to the `Situation` member a record author must cite for that row, spanning all ten sections. The strings cannot be passed to `parse_situation` as S5 first read: the lookup's Situation cells are prose ("Output is code / SQL / an API call"), and prose normalisation is a classifier's job (M1), not a vocabulary's. The test also asserts each phrase is still a verbatim cell in the corpus, and that no cell is silently skipped.
 - **Done when:** all pass.
 
 ## Group 3 — Record format & schema *(T2)*
 
-### [ ] S6 — Format decision + parser
+### [x] S6 — Format decision + parser
 - Decide the on-disk record format. YAML is most readable but needs a hand-written parser (no PyYAML). JSON needs none but reads worse.
 - If YAML: minimal subset of scalars, lists, one level of nested maps, block strings.
 - Implement `evalloop/registry/format.py` with `load(text) -> dict` and tests.
 - State the reasoning in the module docstring.
 - **Done when:** parser tests cover every construct used by records; reasoning documented.
 
-### [ ] S7 — TechniqueRecord dataclass
+### [x] S7 — TechniqueRecord dataclass
 - `evalloop/registry/schema.py`: StrEnums `RecordType` (grader/metric/statistic/diagnostic/procedure/constraint), `Gate` (absolute/statistical/false), `Cost` (low/medium/high), and frozen dataclass `TechniqueRecord` with all fields from `CLAUDE.md §6`.
 - `__post_init__` must raise on:
   - empty `triggers_on_situation`
   - `ladder_priority` set when `type != grader`
-  - `ladder_priority` outside 1–6
+  - `ladder_priority` outside 1–5 (five is the maximum; decision `EL-004` removed the distilled rung)
   - `id` not matching `<SECTION><N>_<snake>`
   - `worked_example` with no digit
   - empty `source_ref`
 - Unit test each rule with hand-built records.
 - **Done when:** each validation rule has a passing positive and negative test.
 
-### [ ] S8 — Loader
-- `evalloop/registry/loader.py`: `load_records(dir) -> tuple[TechniqueRecord, ...]`.
-- Parses each file via `format.py`; validates situation/tool strings through the vocab parsers.
-- Raises `RegistryError` aggregating **all** problems across **all** files, not just the first.
-- Test with a deliberately malformed fixture record.
-- **Done when:** a malformed record produces a message naming the record and the specific problem; multiple errors are all reported.
+### [x] S8 — Loader
+- `evalloop/registry/loader.py`: `load_records(dir) -> tuple[TechniqueRecord, ...]`, sorted by `id` so the result never depends on directory order.
+- Parses each file via `format.py`; validates situation/tool strings through the vocab parsers, surfacing their `ValueError` verbatim with the file, record id and field attached.
+- Raises `RegistryError` aggregating **all** problems across **all** files, not just the first. `RegistryError.problems` is the structured list; the message is the same list, one line each.
+- File shape settled here and for all 73 records: **one file per section, records keyed by id, `.yaml`**, with the id *not* repeated inside the body (decision `EL-013`, which closes open question 7).
+- Tested with `tests/fixtures/registry/`: `good/` (two files, three records, declared out of id order) and `broken/` (four files, thirteen distinct problems at four layers — parse, top-level key, field shape, schema).
+- **Done when:** a malformed record produces a message naming the record and the specific problem; multiple errors are all reported. ✅ 324 passed, `mypy --strict` clean.
 
-### [ ] S9 — Integrity checker
-- `evalloop/registry/integrity.py`: `check_integrity(records) -> list[str]` (human-readable problems).
-- Detect:
+### [x] S9 — Integrity checker
+- `evalloop/registry/integrity.py`: `check_integrity(records) -> list[str]` (human-readable problems). Takes any iterable of records; `[]` means the graph is consistent.
+- Detects all seven:
   - duplicate ids
   - `companion_checks` / `unlocks` / `conflicts_with` pointing at unknown ids
   - self-references
@@ -93,30 +94,25 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
   - non-graders carrying one
   - section outside A–J
   - id prefix disagreeing with the `section` field
-- Test each rule individually, plus a test that `check_integrity()` over `records/` is empty.
-- **Done when:** all rule tests pass.
+- Sorted by record id then rule, so a diff between two runs is meaningful. Rule 3 is skipped when rule 2 already fired: one defect, one line. An unknown reference names the closest loaded id (`difflib`, computed over a sorted id list so ties are stable) and says what the dangling edge costs the planner.
+- `evalloop/registry/records/` is addressed as `loader.RECORDS_DIR`, resolved relative to the package, and is tracked empty via `records/.gitkeep` so "not authored yet" (a trivial pass) is distinguishable from "the directory vanished" (a loud failure).
+- Tested per rule with hand-built record sets, each violating exactly that rule and nothing else (`_only` asserts a single problem, so a spurious second finding fails too).
+- **Rule 4 is all-or-nothing** (changed during S10, by decision): it stays silent while no grader carries a rung and fires for every unrunged grader as soon as one does. The strict form made S10's two requirements — `ladder_priority: null` throughout *and* an empty `check_integrity()` — impossible together, and asserted something `CLAUDE.md` §6 never says (§6 states only "None unless type is grader", the one-way rule the schema already enforces). Two records are permanently unrunged graders: `B2_pairwise_preference` and `A7_tiered_online_scoring`.
+- **Done when:** all rule tests pass. ✅ `mypy --strict` clean.
+- Two findings for the record, neither fixed here: **non-graders carrying a `ladder_priority` is already unreachable** — `schema._check_ladder_priority` raises on it, so the integrity rule is defence in depth and its test has to use `object.__setattr__` to build a violating record. And **five cross-record invariants are unguarded** and named in the module docstring rather than added: unreciprocated `conflicts_with`, an id in both `companion_checks` and `conflicts_with`, `unlocks` cycles, two graders in one section sharing a rung, and a companion that can never be ready.
 
 ## Group 4 — Skeleton extraction *(T3)*
 
-Each stage reads **only** its sections of the master lookup and emits records filling `id · section · name · type · triggers_on_situation · anti_pattern · worked_example · source_ref · gates · analysis_cost`. Everything else stays null/empty, with no guessing.
-
-**Field mapping:** `Use` → `name` · `Situation` → `triggers_on_situation` (a row may map to several) · `What it technically is` → informs `type` and `produces` · `Why this one` → `anti_pattern` (phrased as the failure that occurs without it) · `Example` → `worked_example` (keep concrete numbers) · `source_ref` → `evals-situation-to-technique.md § <letter>`.
-
-**Rules:** most records are NOT graders. Do not merge two techniques into one record. Do not deduplicate across sections.
-
-### [ ] S10 — Sections A, B, C
-- Extract A (grading), B (comparison), C (statistics) into `evalloop/registry/records/` (`A_grading`, `B_comparison`, `C_statistics`). ~20 records.
-- Wilson, McNemar and bootstrap are `type=statistic`. `ladder_priority` null for all non-graders.
-- **Done when:** `load_records()` succeeds; `check_integrity()` empty.
-
-### [ ] S11 — Sections D, E, F
-- D (rare events), E (diagnostics), F (judge trust). ~23 records.
-- E is almost entirely `diagnostic`. D contains constraints ("never accuracy on rare class"). F contains procedures (calibration) and constraints (never same-family judging).
-- **Done when:** loads; integrity empty.
-
-### [ ] S12 — Sections G, H, I, J
-- G (RAG), H (agents), I (production), J (model selection). ~30 records.
-- **Done when:** loads; integrity empty; report total count per section and any lookup row that could not be represented.
+### [x] S10 — Extract A, B, C (20 records)
+### [x] S11 — Extract D, E, F (23 records)
+### [x] S12 — Extract G, H, I, J (30 records)
+- All 73 records live in `evalloop/registry/records/`, ten files, one per section: A 7, B 7, C 6, D 6, E 8, F 9, G 8, H 8, I 9, J 5.
+- Extracted from `evals-situation-to-technique.md` **only**. Deep dives were read for id numbering (`^# [A-J][0-9]+ `) and nothing else, so every `source_ref` is `evals-situation-to-technique.md § <letter>`; the deep-dive thresholds, orderings and edges are S13–S17's.
+- `requires` is empty except where the lookup states a **single** bound verbatim: C3 `{runs: 5}`, E8 `{benchmarks: 3}`, H8 `{trials: 5}`. Stated *ranges* were deliberately left empty, because picking a value out of a range is the invented number `CLAUDE.md` §3 forbids: F1 150–200 gold labels, E4 3–5 runs, F6 4–8 checks, H5 5–10 sub-goals, H7 50–100 traces, J2 300–500 items, J5 100–200 items.
+- `companion_checks` / `unlocks` / `conflicts_with` are empty throughout; the lookup has no column for them. `ladder_priority` is null throughout.
+- `gates`, `analysis_cost` and `capture_cost` have no lookup column and no null member, so they are **derived, not copied**. Section I is the exception and records which rows state a gate (I1, I2, I4, I7, I9) and which do not (I3, I5, I6, I8).
+- **Done when:** 73 records load, `check_integrity()` returns `[]`. ✅ 415 passed, `mypy --strict` clean.
+- `tests/test_records.py` guards the content: per-section counts and every record's `anti_pattern`, `worked_example` and `domain_scenario` diffed against its own lookup row. Verified to fail on a single changed digit.
 
 ## Group 5 — Enrichment *(T4)*
 
@@ -126,7 +122,7 @@ Each stage reads the deep-dive files and fills what S10–S12 left empty: `requi
 
 ### [ ] S13 — Enrich A + B
 - Read `A-choosing-how-to-grade.md`, `B-comparing-two-things.md`.
-- Fill `ladder_priority` from A's ladder (1 execution, 2 end-state, 3 deterministic, 4 judge, 5 human, 6 distilled).
+- Fill `ladder_priority` from A's ladder (1 execution, 2 end-state, 3 deterministic, 4 judge, 5 human). There is no rung 6: decision `EL-004` removed the distilled rung, and `schema.py` now rejects it.
 - Add `conflicts_with` where A says execution beats judging ("if there is any way to execute, execute").
 - Add B's McNemar discordant-pair threshold (~25) and cluster-bootstrap grouping requirement to `requires`.
 - **Done when:** integrity empty; interpreted thresholds flagged.
@@ -424,4 +420,11 @@ Make all 20 fixtures pass. **Do not modify a fixture to match the implementation
 ---
 
 ## Next action
-**S1 → S5** (scaffold + vocabularies). Freezing the vocabularies first is half a day of work and saves rework across all ~70 records.
+**S13** (enrich A + B from the deep dives). S1 → S12 are done: the vocabulary, a strict format parser, a validated 22-field `TechniqueRecord`, an aggregating loader, a seven-rule integrity checker, and all 73 skeleton records loading clean.
+
+Open rulings carried into S13:
+- **C1 "Any score, ever" has no faithful situation mapping.** `Situation` has no member meaning "a score exists". C1 triggers on the ten measurement members plus `small_sample`, which is deliberately narrower than the row; the real route is `companion_checks` from every grader and metric, which S13 adds.
+- **Two vocabulary gaps in F.** F7 "Judge grades the wrong dimension" and F8 "Want better judge accuracy" have no `grader_trust` member; both are mapped to `new_judge_built`.
+- **Section G collapses onto one member.** All eight G rows trigger on `rag_answer`, so `match()` cannot discriminate within G until S16 encodes the build order.
+- **`gates` cannot be null.** The schema types it `Gate`, so "the source states no gate" is written as `Gate.false`. 26 of 73 records are in that state.
+- **Rule 4's residual.** Once S13 assigns rungs to A1–A6, `B2_pairwise_preference` will fire rule 4; it is a grader with no place on section A's ladder.

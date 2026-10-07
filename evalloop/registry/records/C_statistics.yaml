@@ -1,0 +1,226 @@
+# Section C - DECIDING WHETHER A RESULT IS REAL. Six records, one per
+# master-lookup row, in the deep dive's numbering (C1-C6, from
+# '^# C[0-9]+ ' headers).
+#
+# Skeleton extraction from evals-situation-to-technique.md only. The three
+# cross-reference fields are [] everywhere and ladder_priority is null. See
+# A_grading.yaml's header for how gates and the two cost fields were derived.
+#
+# requires is {} everywhere EXCEPT C3, whose Use cell states "k ≥ 5 runs per
+# item" - a readiness threshold, verbatim, in this stage's own source. It is
+# copied rather than deferred to EL-113, because CLAUDE.md section 3 wants a
+# stated threshold copied wherever it is found.
+
+C1_wilson_ci:
+  section: C
+  name: Report a 95% CI (Wilson for proportions)
+  type: statistic
+  triggers_on_situation: [all_candidates_high, all_candidates_zero, benchmark_too_good, length_increased, many_slices_checked, no_change_score_moved, score_jumped, score_near_0_or_100, score_up_business_flat, single_benchmark_dominance, small_sample]
+  required_signals: ["a proportion and its denominator n are both known"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [wilson_ci]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    A bare "82%" invites decisions on noise
+  worked_example: >-
+    82/100 → Wilson 95% CI [73.3%, 88.3%]. That is a 15-pt range, not "82"
+  domain_scenario: >-
+    **Healthcare**: a discharge-summary checker reports 82% on 100 notes. The
+    CI tells the CMO it is not ready
+  rule_of_thumb: >-
+    an interval that stays inside [0, 1] and is valid at small n
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    THE ONE ROW THAT DOES NOT MAP. Its Situation cell is "Any score, ever" -
+    universal - and Situation has no member meaning "a score exists", so there
+    is no faithful mapping and the ticket forbids adding one. The schema
+    requires triggers_on_situation to be non-empty, so this is the nearest
+    honest set: every member of the measurement family (a number has been
+    observed, which is exactly when the row applies) plus small_sample, where
+    the interval is widest and most decision-relevant. It is deliberately
+    narrower than the row. Two things follow. C1 will NOT fire on an artifact
+    or lifecycle situation, so a plain "I graded 100 code outputs" session gets
+    no interval from matching alone; and the real route is
+    companion_checks - every grader and metric record should name C1 - which is
+    EL-113's job and is why the gap is survivable. This is open ruling 1 in
+    TASKS.md and needs a decision, not an extraction choice
+
+C2_power_analysis:
+  section: C
+  name: Power analysis (sample-size calculation)
+  type: statistic
+  triggers_on_situation: [pre_development, building_eval_set]
+  required_signals: ["the minimum effect worth detecting is stated", "the baseline rate is known or assumed", "the design is known to be paired or unpaired"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [required_n]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    An underpowered eval reports "no difference" when the truth is "we couldn't
+    tell"
+  worked_example: >-
+    Detecting 80% → 85% unpaired needs ≈ 905 items per arm. A paired design
+    with 60% agreement needs ≈ 400
+  domain_scenario: >-
+    **Fintech**: a KYC document extractor where you need to detect a 5-pt
+    improvement before re-training
+  rule_of_thumb: >-
+    solve for the n that detects the minimum effect you care about at α = 0.05
+    and power = 0.8
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    "Before running the eval" maps to two lifecycle members, pre_development
+    and building_eval_set. gates is `false`: a power analysis sizes the eval
+    and blocks nothing; the "n is too small to read this" judgement is
+    readiness (EL-121), not a gate
+
+C3_repeat_runs:
+  section: C
+  name: k ≥ 5 runs per item; report the mean ± SD across runs
+  type: statistic
+  triggers_on_situation: [stochastic_system]
+  required_signals: ["the full eval can be repeated with different seeds or samples", "run-to-run variance is treated as the noise floor"]
+  required_tools: []
+  ladder_priority: null
+  requires: {runs: 5}
+  produces: [mean_across_runs, sd_across_runs, noise_floor]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    One run at temperature 0.7 can land ±3 pts from the mean, so you ship a
+    lucky seed
+  worked_example: >-
+    5 runs on 300 items: 76.1, 79.4, 77.8, 74.9, 78.2 → mean 77.3, SD 1.8
+  domain_scenario: >-
+    **Insurance**: a health-claim triage agent whose tool calls vary between
+    runs
+  rule_of_thumb: >-
+    k ≥ 5 runs per item; report the mean ± SD across runs
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    The only requires in these three sections. "k ≥ 5" is stated verbatim in
+    the Use cell, so it is copied as {runs: 5} rather than left for EL-113.
+    capture_cost is high because the threshold multiplies every capture by five
+
+C4_near_bounds_interval:
+  section: C
+  name: Wilson / Clopper–Pearson interval; rule of three when there are 0 events
+  type: statistic
+  triggers_on_situation: [score_near_0_or_100]
+  required_signals: ["the observed score is near 0% or 100%", "the event count and n are both known"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [wilson_ci, clopper_pearson_ci, rule_of_three_upper_bound]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    The normal (Wald) interval gives impossible bounds (>100%) or zero width at
+    0/n
+  worked_example: >-
+    198/200: Wald [97.6%, 100.4%] (impossible), Wilson [96.4%, 99.7%]. 0/300
+    errors → the true rate can still be ≤ 1%
+  domain_scenario: >-
+    **Healthcare**: medication-dosage extraction scores 198/200 on
+    prescriptions
+  rule_of_thumb: >-
+    exact or score-based intervals. With 0 events in n, the 95% upper bound ≈
+    3/n
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    Not merged with C1 although both produce a Wilson interval: separate rows
+    in the lookup, separate deep-dive numbers, and the ticket forbids merging.
+    C1 is "any score", C4 is the near-boundary case plus the rule of three
+
+C5_multiple_comparisons:
+  section: C
+  name: Multiple-comparison correction (Holm–Bonferroni; Benjamini–Hochberg for exploration)
+  type: statistic
+  triggers_on_situation: [many_slices_checked]
+  required_signals: ["the number of tests or slices in the family is known", "a per-test p-value exists for each"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [corrected_alpha, adjusted_p_value]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    With 20 slices at α = 0.05, P(≥1 false alarm) = 1 − 0.95²⁰ = 64%
+  worked_example: >-
+    20 language slices, one "regression" at p = 0.03. The Bonferroni threshold
+    is 0.0025 → not significant
+  domain_scenario: >-
+    **Telecom**: a support bot evaluated across 20 languages and circles. Tamil
+    dipped. Is it real?
+  rule_of_thumb: >-
+    tighten the per-test α so the family-wise (or false-discovery) error stays
+    at 5%
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    Type is genuinely arguable, as the ticket anticipated. The row reads as a
+    `constraint` - do not read one slice out of twenty without correcting - and
+    the planner would enforce it that way. It is typed `statistic` because it
+    produces two numbers the cell names, a corrected α and an adjusted p-value,
+    and CLAUDE.md section 6 reserves `constraint` for records that forbid
+    something and produce nothing. The prohibition is the anti_pattern here
+
+C6_permutation_test:
+  section: C
+  name: Permutation test
+  type: statistic
+  triggers_on_situation: [heavy_tailed_metric]
+  required_signals: ["per-item A/B outcomes are recorded", "the test's distributional assumptions are doubted"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [permutation_p_value]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: null
+  anti_pattern: >-
+    A t-test assumes normality, and heavy-tailed metrics (latency, ₹ cost, ETA
+    error) violate it
+  worked_example: >-
+    Observed difference 2.6 min. Shuffled differences exceeded it 180 of 10,000
+    times → p = 0.018
+  domain_scenario: >-
+    **Logistics**: delivery-ETA error in minutes. A few 6-hour misses dominate
+    the mean
+  rule_of_thumb: >-
+    shuffle the A/B labels per item 10,000× and count how often the shuffled
+    difference ≥ the observed one
+  source_ref: evals-situation-to-technique.md § C
+  extraction_notes: >-
+    The Situation cell is "You don't trust the test's assumptions", which is
+    broader than any member. Mapped to heavy_tailed_metric because that is the
+    violation the row's own Why and Example cells name (latency, ₹ cost, ETA
+    error). A session that distrusts its assumptions for some other reason will
+    not match. Flagged for EL-114

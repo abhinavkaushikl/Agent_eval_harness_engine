@@ -1,0 +1,56 @@
+# Two records, two different layers of failure.
+#
+# B1 is shape-clean and vocabulary-clean, and fails the schema: its
+# worked_example carries no digit. That is the layer TechniqueRecord owns, and
+# it has to arrive in the same aggregated list as the shape problems above.
+#
+# B3 carries four shape problems at once: an unknown record type, an unknown
+# cost, a threshold that is a word rather than a number, and a bare scalar
+# where a flow list belongs.
+
+B1_paired_evaluation:
+  section: B
+  name: Paired evaluation + paired bootstrap CI
+  type: statistic
+  triggers_on_situation: [two_candidates]
+  required_signals: ['both versions ran on the same items']
+  required_tools: []
+  ladder_priority: null
+  requires: {paired_items: 30}
+  produces: [paired_difference_ci]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    An unpaired comparison lets item-difficulty variance swamp the signal
+  worked_example: run both versions on the same items and read the per-item difference
+  domain_scenario: null
+  rule_of_thumb: null
+  source_ref: master lookup § B
+  extraction_notes: null
+
+B3_mcnemar:
+  section: B
+  name: McNemar's test
+  type: test
+  triggers_on_situation: [two_candidates]
+  required_signals: ['paired binary outcomes on the same items']
+  required_tools: []
+  ladder_priority: null
+  requires: {discordant_pairs: twenty-five}
+  produces: chi_square
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: cheap
+  capture_cost: null
+  anti_pattern: A two-proportion z-test assumes independent samples
+  worked_example: '500 claims: b = 40, c = 65, chi-square = 5.49, p = 0.019'
+  domain_scenario: null
+  rule_of_thumb: b + c < 25 -> exact binomial instead
+  source_ref: master lookup § B
+  extraction_notes: null

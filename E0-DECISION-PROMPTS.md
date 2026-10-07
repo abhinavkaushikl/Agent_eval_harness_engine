@@ -20,7 +20,7 @@ You are working in the EvalLoop repo at /Users/abhinav/Eval-harness-Engine.
 Read CLAUDE.md first and obey it, especially:
   - Milestone 0 only: registry + planner. No execution, no sandbox, no file watching,
     no LLM calls, no statistics, no storage, no dashboard, no MCP code.
-  - Standard library only. Python 3.12+. Type hints everywhere.
+  - Standard library only. Python 3.10+ (EL-012). Type hints everywhere.
   - Never invent a number. A threshold is copied verbatim from the corpus or is null.
   - Never hardcode an absolute user path. The corpus path comes from EVALLOOP_CORPUS.
   - Do not edit a test fixture to make a test pass.
@@ -163,7 +163,7 @@ THE RESULT I WANT TO SEE
 
 ## EL-003 — New situations
 
-**Blocks:** EL-103 · **Recommendation:** add them in M0
+**Blocks:** EL-103 · **:** add them in M0
 
 ````text
 WHAT I WANT

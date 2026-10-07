@@ -6,6 +6,10 @@ defaults to that directory, resolved relative to the repo root rather than
 written out as an absolute user path. ``EVALLOOP_CORPUS`` still overrides it,
 so the corpus can be pointed at a checkout elsewhere.
 
+Hand-written fixture directories are declared here for the same reason: a test
+that silently points at a directory that no longer exists would pass by loading
+nothing, so ``require_fixture_dir`` fails and names the path instead.
+
 Every corpus filename in this project is declared here once. Nothing else in
 the test suite or the package may spell a corpus filename literally: a single
 silent mismatch is exactly the failure mode this module exists to prevent.
@@ -23,10 +27,17 @@ from types import MappingProxyType
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+TESTS_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = TESTS_ROOT.parent
 CORPUS_DIRNAME = "knowledge rules"
 DEFAULT_CORPUS_DIR = REPO_ROOT / CORPUS_DIRNAME
 CORPUS_ENV_VAR = "EVALLOOP_CORPUS"
+
+#: Hand-written fixture trees, declared once (EL-108 onward).
+FIXTURES_DIR = TESTS_ROOT / "fixtures"
+REGISTRY_FIXTURES_DIR = FIXTURES_DIR / "registry"
+GOOD_RECORDS_DIR = REGISTRY_FIXTURES_DIR / "good"
+BROKEN_RECORDS_DIR = REGISTRY_FIXTURES_DIR / "broken"
 
 MASTER_LOOKUP = "evals-situation-to-technique.md"
 INDEX_FILE = "00-INDEX.md"
@@ -113,3 +124,29 @@ def corpus_dir() -> Path:
     if override is None:
         return DEFAULT_CORPUS_DIR
     return Path(override).expanduser()
+
+
+def require_fixture_dir(path: Path) -> Path:
+    """Fail loudly when a hand-written fixture directory is gone.
+
+    A test pointed at a vanished directory would otherwise load nothing and
+    pass, which is the silent failure the aggregating loader exists to stop.
+    """
+    if not path.is_dir():
+        pytest.fail(
+            f"fixture directory missing: {path}. It is hand-written and declared in "
+            "tests/conftest.py; restore it rather than re-pointing the test."
+        )
+    return path
+
+
+@pytest.fixture(scope="session")
+def good_records_dir() -> Path:
+    """Valid records: two files, three records, declared out of id order."""
+    return require_fixture_dir(GOOD_RECORDS_DIR)
+
+
+@pytest.fixture(scope="session")
+def broken_records_dir() -> Path:
+    """Deliberately malformed records: four files, thirteen distinct problems."""
+    return require_fixture_dir(BROKEN_RECORDS_DIR)

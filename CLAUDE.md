@@ -39,7 +39,7 @@ Those belong to later milestones (see `PLAN.md`). Do not create `grade/`, `captu
 
 | Rule | Detail |
 |---|---|
-| Python | **3.12+** |
+| Python | **3.10+** (decision `EL-012`). `mypy` is pinned to `python_version = 3.10`, so any stdlib API newer than 3.10 is a type error, not a runtime surprise. |
 | Dependencies | **Standard library only** in shipped code. `pytest` and `mypy` are dev-only and allowed. NumPy is the only external dependency that may ever be permitted, and it is **not** needed in M0. |
 | No PyYAML | Write a minimal parser for the YAML subset we use, or use JSON. State the choice and trade-off in a module docstring. |
 | No frameworks | No third-party frameworks or wrappers anywhere in the project. |
@@ -58,7 +58,7 @@ The methodology being codified is versioned **inside this repo**, in one flat di
 letter, and there is no subdirectory:
 
 ```
-knowledge rules/evals-situation-to-technique.md        master lookup — ~70 techniques
+knowledge rules/evals-situation-to-technique.md        master lookup — 73 techniques
                                                        as a table, ten sections A–J
 knowledge rules/00-INDEX.md                            index + five cross-cutting principles
 knowledge rules/A-choosing-how-to-grade.md
@@ -81,7 +81,7 @@ Never write a corpus filename as a literal anywhere else — a single silent mis
 every extraction stage read nothing. A missing or misnamed file **fails** the suite and
 names the file; it does not skip.
 
-- **Master lookup** is the skeleton. It is already tabular, with columns `Situation | Use | What it technically is | Why this one | Example`, and has one row per technique.
+- **Master lookup** is the skeleton. It is already tabular, with six columns — `Situation | Use | What it technically is | Why this one | Example | Real-world domain scenario` — and has one row per technique.
 - **Deep dives** (~3.5k words each) hold the details: thresholds, formulas, orderings, required tools, and a decision flow per section.
 
 ### Section coverage
@@ -105,9 +105,10 @@ names the file; it does not skip.
 ```
 evalloop/
   __init__.py
+  _compat.py             back-compatible StrEnum (3.10 floor, EL-012)
   vocab/
     __init__.py          re-exports Situation, Tool, parse_situation, parse_tool
-    situations.py        StrEnum Situation (5 comment-grouped families)
+    situations.py        StrEnum Situation (6 comment-grouped families)
     tools.py             StrEnum Tool
   registry/
     __init__.py
@@ -116,7 +117,8 @@ evalloop/
     loader.py            load_records(dir) -> tuple[TechniqueRecord, ...]
     integrity.py         check_integrity(records) -> list[str]
     query.py             match(records, situations)
-    records/             A_grading.*, B_comparison.*, … J_model_selection.*
+    records/             A_grading.yaml, B_comparison.yaml, … J_model_selection.yaml
+                         one file per section, records keyed by id (EL-013)
   plan/
     __init__.py
     readiness.py         evaluate_readiness(record, evidence) -> Readiness
@@ -141,13 +143,19 @@ README.md                ≤ 15 lines
 
 ## 6. Core domain vocabulary
 
+**`StrEnum` below means `evalloop/_compat.StrEnum`**, not `enum.StrEnum`: the
+stdlib class arrived in 3.11 and the floor is 3.10 (decision `EL-012`). Behaviour is
+identical and asserted in `tests/test_compat.py`.
+
 ### `Situation` (StrEnum, value == lowercase member name)
 - **artifact:** code_generation, sql_generation, api_endpoint, structured_extraction, summarization, qa_answer, rag_answer, agent_action, classification, prose_generation, model_training, data_pipeline
-- **measurement:** score_jumped, score_up_business_flat, length_increased, no_change_score_moved, all_candidates_high, all_candidates_zero, benchmark_too_good, single_benchmark_dominance
-- **comparison:** two_candidates, many_candidates, external_leaderboard, metric_without_formula, items_grouped
+- **measurement:** score_jumped, score_up_business_flat, length_increased, no_change_score_moved, all_candidates_high, all_candidates_zero, benchmark_too_good, single_benchmark_dominance, score_near_0_or_100, many_slices_checked
+- **comparison:** two_candidates, many_candidates, external_leaderboard, metric_without_formula
 - **grader_trust:** new_judge_built, measuring_agreement, multiple_annotators, position_bias_risk, self_preference_risk, scale_compressed, annotators_disagree
-- **data:** rare_class, small_sample, grouped_items, contamination_risk, phi_present, distribution_mismatch
-- **lifecycle:** pre_development, shipping_change, ci_flaking, debugging_regression, detecting_drift, scoring_live_traffic, measuring_impact, ab_testing, building_eval_set, model_selection
+- **data:** rare_class, small_sample, grouped_items, contamination_risk, phi_present, distribution_mismatch, stochastic_system, heavy_tailed_metric, false_alarm_expensive
+- **lifecycle:** pre_development, shipping_change, ci_flaking, debugging_regression, detecting_drift, scoring_live_traffic, measuring_impact, ab_testing, building_eval_set, model_selection, high_stakes_decision, threshold_not_chosen, error_costs_priceable, measuring_safety, reporting_safety_numbers
+
+57 members. S3 settled two things against the corpus, and `evalloop/vocab/situations.py` carries the citation for each: `items_grouped` is gone, because section B has one row ("Items come in groups") and one row gets one member — `grouped_items`, in **data**, since grouping is a property of the items; and the ten members added above are the ones without which sections C and D load, pass integrity checks and never match. The enum orders families as above and members alphabetically within a family.
 
 ### `Tool` (StrEnum)
 sandbox, test_runner, repo_read, source_doc_read, llm_api, llm_api_cross_family, vector_store, db_connection, ocr, vision_model, trace_capture, snapshot_restore, cost_api, human_labels, production_logs
@@ -177,6 +185,7 @@ Verify both against the sources. Add members **only** if genuinely missing, and 
 | capture_cost | Cost \| None | |
 | anti_pattern | str | what going wrong looks like |
 | worked_example | str | concrete figures from source — **must contain a digit** |
+| domain_scenario | str \| None | the sixth lookup column: the named deployment scenario, verbatim including its `**<Domain>**:` prefix (decision `decisions/EL-011-sixth-column-mapping.md`). No digit rule; the planner never reads it |
 | rule_of_thumb | str \| None | any stated formula, verbatim |
 | source_ref | str | `filename § subsection` |
 | extraction_notes | str \| None | anything ambiguous |

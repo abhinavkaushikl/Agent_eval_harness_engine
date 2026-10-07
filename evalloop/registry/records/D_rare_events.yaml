@@ -1,0 +1,213 @@
+# Section D - RARE EVENTS. Six records, one per master-lookup row, in the deep
+# dive's numbering (D1-D6, from '^# D[0-9]+ ' headers).
+#
+# Two CONSTRAINT records live here, and they are what the planner puts in
+# PROHIBITED (AGENT.md section 3.5 step 2):
+#   D1 - never accuracy on a rare class. AGENT.md section 5 names this one
+#        explicitly as a constraint record.
+#   D6 - no "% safe" headline.
+# Both carry the source's own figure in anti_pattern, because a prohibition
+# nobody can picture gets ignored.
+#
+# Skeleton extraction from evals-situation-to-technique.md only. See
+# A_grading.yaml's header for how gates and the two cost fields were derived,
+# and for why the cross-reference fields and ladder_priority are empty.
+
+D1_pr_curve_never_accuracy:
+  section: D
+  name: Precision–recall curve and PR-AUC, never accuracy
+  type: constraint
+  triggers_on_situation: [rare_class]
+  required_signals: ["the positive class is a small fraction of traffic", "per-item scores are available across thresholds"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [precision_recall_curve, pr_auc]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    Predicting "all good" scores 97% accuracy with 0% recall, and ROC-AUC also
+    looks flattering under imbalance
+  worked_example: >-
+    10,000 transactions with 300 fraud: "always legit" gives 97% accuracy and 0
+    fraud caught
+  domain_scenario: >-
+    **Fintech**: UPI collect-request fraud detection
+  rule_of_thumb: >-
+    plot precision against recall across thresholds. PR-AUC reflects
+    performance on the positive class
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: >-
+    Typed `constraint`, not `metric`, on two authorities: the deep-dive title
+    is "PRECISION–RECALL CURVE AND PR-AUC, NEVER ACCURACY", and AGENT.md
+    section 5 lists "Never accuracy on a rare class" as a constraint record.
+    `produces` still names the two metrics the constraint mandates in place of
+    accuracy; the prohibition is the record, the curve is what you use instead.
+    The "under 5%" bound in the Situation cell is NOT recorded in requires: it
+    describes when the row applies, not how much evidence the technique needs
+
+D2_precision_at_floor:
+  section: D
+  name: Precision at a fixed floor (or F0.5)
+  type: metric
+  triggers_on_situation: [false_alarm_expensive]
+  required_signals: ["a false positive has a priceable cost", "a precision floor has been agreed with the business"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [precision_at_floor, recall_at_floor]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    F1 weights false positives and false negatives equally, but here a false
+    positive costs real money and trust
+  worked_example: >-
+    A false block on a salary NEFT costs ₹400 in support plus churn risk. Set
+    precision ≥ 95% and accept 60% recall
+  domain_scenario: >-
+    **Banking**: auto-blocking outgoing NEFT/IMPS transfers as suspicious
+  rule_of_thumb: >-
+    require precision ≥ X, then maximise recall under that constraint
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: >-
+    The Example's "precision ≥ 95%" and "60% recall" are this scenario's
+    agreed numbers, not the technique's threshold - the rule of thumb is
+    "precision ≥ X" with X left open - so requires stays empty
+
+D3_average_precision:
+  section: D
+  name: Average precision (PR-AUC), a threshold-free comparison
+  type: metric
+  triggers_on_situation: [threshold_not_chosen]
+  required_signals: ["no operating threshold has been chosen yet", "per-item scores are available across thresholds"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [average_precision]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    Comparing at the default 0.5 threshold rewards whichever model happens to
+    be calibrated near 0.5
+  worked_example: >-
+    Model A AP 0.62 vs B AP 0.54, but at a 0.5 threshold B shows higher F1
+    because A's scores are shifted low
+  domain_scenario: >-
+    **Insurance**: choosing between two health-claim fraud scorers before
+    operations agrees on a review budget
+  rule_of_thumb: >-
+    summarise the whole PR curve in one number
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: null
+
+D4_cost_based_threshold:
+  section: D
+  name: Cost-based threshold on a validation set, reported on a separate test set
+  type: procedure
+  triggers_on_situation: [threshold_not_chosen, error_costs_priceable]
+  required_signals: ["a dishonest and a missed detection both have a stated rupee cost", "a validation set separate from the test set exists"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [chosen_threshold, expected_cost]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Tuning the threshold on the test set inflates the reported number, and
+    eyeballing F1 ignores ₹ costs
+  worked_example: >-
+    C_fn = ₹50,000 (fraud paid out), C_fp = ₹800 (manual review). Threshold
+    0.18 → ₹11.2 lakh/month vs ₹19 lakh at 0.5
+  domain_scenario: >-
+    **Insurance**: motor-claim fraud routing to the SIU review team
+  rule_of_thumb: >-
+    minimise FP·C_fp + FN·C_fn on validation, then freeze the threshold
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: >-
+    The only row in D whose Situation maps to two members: threshold_not_chosen
+    (shared with D3) and error_costs_priceable, which the cost formula requires.
+    The Example's C_fn, C_fp and 0.18 are one scenario's figures and are not
+    recorded as thresholds
+
+D5_red_team_asr:
+  section: D
+  name: Targeted red-team set + attack success rate (ASR) per category
+  type: metric
+  triggers_on_situation: [measuring_safety]
+  required_signals: ["a curated adversarial prompt set exists, bucketed by harm category", "attempts and successes are counted per category"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [attack_success_rate, asr_per_category]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Random production samples contain almost no attacks, so "0 failures on
+    1,000 random chats" proves little
+  worked_example: >-
+    800 red-team prompts in 8 categories, including Hinglish jailbreaks. ASR =
+    33/800 = 4.1%, with 19 of the 33 in the self-harm category
+  domain_scenario: >-
+    **Healthcare**: a mental-wellness chatbot before launch in Tier-2 cities
+  rule_of_thumb: >-
+    a curated adversarial prompt set per harm category; ASR = successful
+    attacks / attempts
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: >-
+    required_tools is empty although red-teaming is laborious: the adversarial
+    set is a required_signal (something that must exist about the data), not a
+    capability the Tool enum names. Flagged for EL-114
+
+D6_upper_bound_no_safe_headline:
+  section: D
+  name: Upper confidence bound + per-category counts, no "% safe" headline
+  type: constraint
+  triggers_on_situation: [reporting_safety_numbers]
+  required_signals: ["failures and attempts are counted per category", "a confidence level for the bound has been chosen"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [failure_rate_upper_bound, per_category_counts]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    "99.9% safe" hides a small n and one category failing 5 of 20
+  worked_example: >-
+    3/1,500 → headline "99.8% safe". The per-category table shows 0/1,480
+    general and 3/20 caste-slur probes (15%, Wilson CI [5.2%, 36.0%])
+  domain_scenario: >-
+    **HR**: a hiring-assistant bias report per protected attribute (gender,
+    surname-inferred caste, age)
+  rule_of_thumb: >-
+    report "failure rate ≤ X% at 95% confidence" plus a raw count table by
+    category
+  source_ref: evals-situation-to-technique.md § D
+  extraction_notes: >-
+    The second constraint in D: it forbids a reporting format rather than a
+    metric. AGENT.md section 5's "Violation rate always reported with
+    over-refusal rate" is the related non-negotiable, and the over-refusal half
+    is section I's, so no cross-reference is written here
