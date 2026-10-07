@@ -1,0 +1,280 @@
+# Section G - RAG SYSTEMS. Eight records, one per master-lookup row, in the
+# deep dive's numbering (G1-G8, from '^# G[0-9]+ ' headers).
+#
+# Mostly metrics: G1, G3, G4, G5, G6, G7 and G8 are `metric`; G2 is the one
+# `diagnostic` (an oracle-context test exists to explain, not to measure).
+#
+# THE BUILD ORDER IS NOT HERE. AGENT.md section 5 states "retrieval recall@k
+# before faithfulness (RAG)", and CLAUDE.md section 4 gives G's ordering, but
+# unlocks and requires stay empty in this stage per the ticket - EL-116 owns
+# the edges.
+#
+# VOCABULARY FINDING, reported once here rather than on eight records: all
+# eight Situation cells collapse onto the single member rag_answer. The cells
+# are eight DISTINCT symptoms ("Ranking quality matters", "Citations shown to
+# users", "Retrieval sometimes returns junk"...) and Situation has no
+# RAG-internal members, so match() cannot discriminate between them: a session
+# on rag_answer selects all eight at once. That is survivable only because
+# EL-116's build order will sequence them. G2 carries a second member,
+# debugging_regression, because stage isolation is a debugging act.
+#
+# gates: see A_grading.yaml's header for the derivation. No G row states one.
+
+G1_component_wise_eval:
+  section: G
+  name: "Component-wise eval: retrieval recall@k plus generation accuracy given gold context"
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["retrieved passages are recorded per query", "gold context is available to feed the generator directly"]
+  required_tools: [vector_store]
+  ladder_priority: null
+  requires: {}
+  produces: [recall_at_k, generation_accuracy_given_gold_context]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    End-to-end accuracy can't tell you whether to fix the retriever or the
+    prompt, so teams tune the wrong stage
+  worked_example: >-
+    End-to-end 62%. Recall@5 = 70%, and with gold context the generator is
+    correct 88% → fix retrieval
+  domain_scenario: >-
+    **Insurance**: a policy-wording bot answering "is cataract surgery covered
+    in year 1?"
+  rule_of_thumb: >-
+    score the retriever and the generator separately
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    Typed `metric` on what it produces (two numbers), although the Use cell
+    describes an eval DESIGN, which reads as a procedure. This is the first
+    record in G's build order per AGENT.md section 5 ("retrieval recall@k
+    before faithfulness"), and that edge is EL-116's to write
+
+G2_oracle_context_test:
+  section: G
+  name: Oracle-context test + per-failure stage attribution
+  type: diagnostic
+  triggers_on_situation: [rag_answer, debugging_regression]
+  required_signals: ["gold passages exist for the failing queries", "each failure can be inspected and tagged"]
+  required_tools: [vector_store]
+  ladder_priority: null
+  requires: {}
+  produces: [stage_attribution]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Without attribution, every fix is a guess
+  worked_example: >-
+    200 failures: 58% not retrieved, 17% retrieved but ranked beyond 5, 25%
+    retrieved but misread
+  domain_scenario: >-
+    **Legal**: a contract-QA bot over 5,000 master service agreements
+  rule_of_thumb: >-
+    replace retrieval with gold passages, and tag each failure as not
+    retrieved / ranked too low / misread
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    The one diagnostic in G, and the only G row carrying a second situation
+    member: "Isolating which stage broke" is a debugging act, so
+    debugging_regression is mapped alongside rag_answer
+
+G3_faithfulness:
+  section: G
+  name: "Faithfulness: claim decomposition + NLI entailment against the retrieved context"
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["the answer can be split into atomic claims", "the retrieved context is recorded alongside the answer"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [faithfulness_score, unsupported_claim_rate]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: low
+  anti_pattern: >-
+    Correctness against a reference misses extra unsupported claims added to a
+    correct answer
+  worked_example: >-
+    1 answer → 6 claims, 5 entailed → 0.83. Over 500 answers, 14% contain ≥1
+    unsupported claim
+  domain_scenario: >-
+    **Healthcare**: a hospital SOP bot adding a dosage the SOP never states
+  rule_of_thumb: >-
+    split the answer into atomic claims and check whether the context entails
+    each one
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    AGENT.md section 5 orders this AFTER G1's retrieval recall@k; the
+    dependency is EL-116's to encode as requires or unlocks
+
+G4_ndcg:
+  section: G
+  name: nDCG@10 with graded relevance
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["graded relevance labels exist per query-passage pair", "the retrieved order is recorded"]
+  required_tools: [vector_store, human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [ndcg_at_10]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    Recall@k ignores order, but users only read the top 3
+  worked_example: >-
+    A reranker lifts nDCG@10 from 0.61 to 0.72 while recall@10 stays flat at
+    0.83
+  domain_scenario: >-
+    **E-commerce**: product search for "cotton kurta for office under ₹1,500"
+  rule_of_thumb: >-
+    discounted gain by rank position, normalised against the ideal order
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    capture_cost is high because graded relevance needs human labelling, which
+    is why human_labels is a required tool here and not on G5
+
+G5_mrr_hit_at_k:
+  section: G
+  name: MRR and Hit@k
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["exactly one document is correct per query", "the rank of that document is recoverable"]
+  required_tools: [vector_store]
+  ladder_priority: null
+  requires: {}
+  produces: [mrr, hit_at_k]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    With one relevant document, what matters is how far down it sits, and nDCG
+    obscures that
+  worked_example: >-
+    MRR = 0.74, Hit@3 = 0.89. The right circular is in the top 3 for 89% of
+    queries
+  domain_scenario: >-
+    **Banking**: finding the one RBI master circular that governs a compliance
+    query
+  rule_of_thumb: >-
+    MRR = mean of 1/rank of the single correct document
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    G4 and G5 are alternatives chosen by the data ("Ranking quality matters"
+    vs "Only one right document exists"), so conflicts_with is arguably the
+    right edge between them. Left empty per the stage's rule; flagged for EL-116
+
+G6_unanswerable_set:
+  section: G
+  name: "Unanswerable-question set: false-answer rate + abstention precision"
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["questions whose answer is absent from the corpus can be authored", "refusals are distinguishable from answers"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [false_answer_rate, abstention_precision]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Standard sets are 100% answerable, so hallucination on unknowns is never
+    measured
+  worked_example: >-
+    100 unanswerable questions mixed into 400: the system confidently answers
+    37 → 37% false-answer rate
+  domain_scenario: >-
+    **HR**: a policy bot asked "maternity leave for contract staff?" when the
+    policy doesn't cover contractors
+  rule_of_thumb: >-
+    mix in questions whose answer is *not* in the corpus and score correct
+    refusals
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    CLAUDE.md section 4 names this row's pair as "false-answer rate +
+    over-abstention", and the lookup's own wording is "abstention precision".
+    Both halves are kept in produces because reporting either alone is the
+    failure AGENT.md section 5 forbids
+
+G7_context_precision:
+  section: G
+  name: Context precision + a distractor-injection robustness test
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["retrieved chunks can be judged relevant or not", "irrelevant chunks can be injected into the context"]
+  required_tools: [vector_store]
+  ladder_priority: null
+  requires: {}
+  produces: [context_precision, distractor_robustness]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    The generator reads and uses irrelevant chunks, so junk retrieval becomes
+    wrong answers
+  worked_example: >-
+    Precision@5 = 0.46. Injecting 2 distractor chunks drops accuracy from 84%
+    to 71%
+  domain_scenario: >-
+    **Telecom**: tariff bot retrieving discontinued 2023 plans alongside
+    current ones
+  rule_of_thumb: >-
+    measure the share of retrieved chunks that are relevant, then inject
+    irrelevant chunks and re-measure
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: null
+
+G8_citation_precision_recall:
+  section: G
+  name: Citation precision and citation recall
+  type: metric
+  triggers_on_situation: [rag_answer]
+  required_signals: ["citations are shown to users and recorded per sentence", "each cited passage can be checked against the sentence it supports"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [citation_precision, citation_recall]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Plausible-looking citations that don't support the claim destroy trust and
+    create liability
+  worked_example: >-
+    300 answers with 1,100 citations: precision 81%, so 1 in 5 cited sources
+    doesn't support its sentence
+  domain_scenario: >-
+    **Legal**: a research tool citing Supreme Court and High Court judgments to
+    advocates
+  rule_of_thumb: >-
+    "Precision: does each cited passage support its sentence? Recall: is every claim cited?"
+  source_ref: evals-situation-to-technique.md § G
+  extraction_notes: >-
+    Both halves kept in one record: the lookup commits to one row naming both,
+    and splitting would invert the no-merge rule

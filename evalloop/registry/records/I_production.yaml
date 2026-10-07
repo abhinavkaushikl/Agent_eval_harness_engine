@@ -1,0 +1,319 @@
+# Section I - PRODUCTION. Nine records, one per master-lookup row, in the deep
+# dive's numbering (I1-I9, from '^# I[0-9]+ ' headers).
+#
+# GATES MATTER HERE, so this file records what the source states and marks
+# every row where it states nothing. The schema types gates as `Gate`, with
+# members absolute / statistical / false and NO null member, so "the source
+# does not state a gate" cannot be written as null. Where the source is silent
+# the value is `false` - never blocks, reported only - and the record says so
+# in extraction_notes. The four silent rows are I3, I5, I6 and I8.
+#
+# Stated by the source:
+#   I1 absolute    "the merge is blocked on an aggregate drop or any must-pass
+#                   failure" - and a must-pass golden set is section 6's own
+#                   example of an absolute gate
+#   I2 statistical "evals fail only when the 3-run mean falls below baseline
+#                   minus tolerance"
+#   I4 statistical "alert when the result falls > 3 SD below the 30-day mean"
+#   I7 statistical "Fix the primary metric, n and duration *before* launch,
+#                   then read it once"
+#   I9 absolute    "with rollback triggers", "auto-rollback if escalation
+#                   rises > 1 pt"
+#
+# The lifecycle family maps almost one-to-one onto I: eight distinct members
+# for nine rows, with I1 and I9 sharing shipping_change.
+
+I1_ci_regression_gate:
+  section: I
+  name: "CI regression gate: a fixed suite + a must-pass golden set"
+  type: procedure
+  triggers_on_situation: [shipping_change]
+  required_signals: ["a fixed eval suite runs on every PR", "a must-pass golden set is designated", "an aggregate drop tolerance is agreed"]
+  required_tools: [test_runner, repo_read]
+  ladder_priority: null
+  requires: {}
+  produces: [suite_score, must_pass_failures]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Prompt edits silently break old cases that nobody re-checks by hand
+  worked_example: >-
+    250-item suite + 40 must-pass items. Block if the drop is > 2 pts or any
+    must-pass fails
+  domain_scenario: >-
+    **Fintech**: an EMI calculator bot, where one must-pass is "₹5 lakh at
+    10.5% for 36 months = ₹16,251/month"
+  rule_of_thumb: >-
+    every PR runs the eval, and the merge is blocked on an aggregate drop or
+    any must-pass failure
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates STATED by the source: the row says the merge is blocked. The "> 2
+    pts" tolerance in the Example is this scenario's agreed number, not the
+    technique's, so requires stays empty
+
+I2_split_deterministic_statistical:
+  section: I
+  name: Split deterministic tests from statistical evals; gate evals on a multi-run mean against a tolerance band
+  type: procedure
+  triggers_on_situation: [ci_flaking]
+  required_signals: ["responses can be cached or run at temperature 0 for the deterministic half", "the eval can be run several times per gate", "a baseline and a tolerance band exist"]
+  required_tools: [test_runner]
+  ladder_priority: null
+  requires: {}
+  produces: [false_fail_rate, multi_run_mean]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Flaky gates get ignored, then disabled, and then nothing is gated
+  worked_example: >-
+    False-fail rate 18% → 2% after gating on the 3-run mean with ±2.5 pt
+    tolerance
+  domain_scenario: >-
+    **Telecom**: a CI pipeline for a 12-language support bot
+  rule_of_thumb: >-
+    unit tests use cached or temperature-0 responses, and evals fail only when
+    the 3-run mean falls below baseline minus tolerance
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates STATED: "evals fail only when the 3-run mean falls below baseline
+    minus tolerance" is a statistical gate in so many words. The ±2.5 pt band
+    and the 3-run count are stated only inside this scenario's Example, so
+    neither is recorded in requires - CLAUDE.md section 6 lists the ±2.5 pt
+    tolerance as a corpus float, and EL-117 should copy it from the deep dive
+
+I3_error_analysis:
+  section: I
+  name: "Error analysis: sample 100 failures, open-code them, count categories"
+  type: procedure
+  triggers_on_situation: [debugging_regression]
+  required_signals: ["failures are retrievable in bulk", "root causes can be tagged inductively"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [failure_categories, category_counts]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: high
+  capture_cost: low
+  anti_pattern: >-
+    Teams fix the most memorable bug, not the most frequent one
+  worked_example: >-
+    100 failures: 41 date-format (DD/MM vs MM/DD), 23 wrong policy version, 12
+    Hinglish misparse → fix dates first
+  domain_scenario: >-
+    **Insurance**: renewal-reminder generator
+  rule_of_thumb: >-
+    read failures, tag root causes, and sort by frequency
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates NOT STATED by the source. Error analysis produces an ordering of
+    causes and blocks nothing, so the value would be null if Gate had a null
+    member; recorded as `false` and reported
+
+I4_pinned_versions_canary:
+  section: I
+  name: Pinned model versions + a daily canary eval with drift alerts
+  type: procedure
+  triggers_on_situation: [detecting_drift]
+  required_signals: ["model versions can be pinned rather than aliased", "a fixed canary set can run on a schedule", "a rolling baseline of past results exists"]
+  required_tools: [llm_api, production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [canary_score, drift_alert]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Providers update model aliases silently, and behaviour shifts without any
+    code change
+  worked_example: >-
+    Canary JSON-validity dropped from 92% to 84% overnight, and the alert fired
+    before users complained
+  domain_scenario: >-
+    **E-commerce**: catalogue enrichment that depends on strict JSON output
+  rule_of_thumb: >-
+    run a fixed 100-item set daily and alert when the result falls > 3 SD below
+    the 30-day mean
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates STATED: "> 3 SD below the 30-day mean" is a statistical trigger. The
+    3 SD, 30-day and 100-item figures sit in rule_of_thumb verbatim rather than
+    requires, because they parameterise the alert, not the readiness of the
+    record
+
+I5_sampled_online_eval:
+  section: I
+  name: "Sampled online eval: reference-free judge + implicit signals"
+  type: procedure
+  triggers_on_situation: [scoring_live_traffic]
+  required_signals: ["a random sample of live traffic can be routed to a judge", "implicit signals such as thumbs, escalation, re-ask and abandonment are recorded on all traffic"]
+  required_tools: [llm_api, production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [sampled_judge_score, escalation_rate, reask_rate, abandonment_rate]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Live traffic has no ground truth, and judging all of it is too expensive
+  worked_example: >-
+    2% of 5 lakh daily chats = 10,000 judged. The escalation rate of 7.2% is
+    tracked as a guardrail
+  domain_scenario: >-
+    **Telecom**: a WhatsApp support bot for a mobile operator
+  rule_of_thumb: >-
+    judge 1–2% of traffic, and track thumbs, escalation, re-ask and abandonment
+    rates on 100%
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates NOT STATED. The row says the escalation rate is "tracked as a
+    guardrail", which is monitoring, not a stated block; recorded as `false`
+    and reported. A7 in section A is the same tiered-scoring idea seen from the
+    grading side, and the two are not merged
+
+I6_business_metric_guardrails:
+  section: I
+  name: Business outcome metric tied to the eval (containment, resolution, CSAT) + guardrails
+  type: metric
+  triggers_on_situation: [measuring_impact]
+  required_signals: ["one primary KPI with a rupee value is agreed", "harm metrics are tracked alongside it"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [primary_kpi, guardrail_metrics]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Offline gains that don't move outcomes waste roadmap time
+  worked_example: >-
+    3 lakh chats/month, containment 38% → 46% = 24,000 fewer agent calls × ₹35
+    = ₹8.4 lakh/month
+  domain_scenario: >-
+    **Banking**: a credit-card servicing bot
+  rule_of_thumb: >-
+    pick one primary KPI with a ₹ value and watch for harm metrics alongside it
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates NOT STATED, recorded as `false` and reported. The guardrails are in
+    produces because the row refuses the primary KPI alone, which is the same
+    never-alone rule as D6, G6 and H6
+
+I7_pre_registered_ab:
+  section: I
+  name: Pre-registered online A/B test
+  type: procedure
+  triggers_on_situation: [ab_testing]
+  required_signals: ["the primary metric, n and duration are fixed before launch", "users can be randomised into arms", "the result is read once"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [arm_difference, primary_metric_p_value]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    Peeking and metric-shopping manufacture false wins
+  worked_example: >-
+    Detecting 40% → 41% resolution needs ≈ 38,000 sessions per arm. Run 2
+    weeks, 50/50 split
+  domain_scenario: >-
+    **E-commerce**: a checkout assistant nudging COD users toward UPI
+  rule_of_thumb: >-
+    fix the primary metric, n and duration *before* launch, then read it once
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates STATED: pre-registration plus a single read is a statistical gate.
+    AGENT.md section 3.5 lists A/B by user as section I content; the 38,000
+    figure is this scenario's power calculation, so C2 is the general record
+    and no edge is written here
+
+I8_eval_set_from_logs:
+  section: I
+  name: Stratified sample from production logs + past failures + adversarial items, with a held-out split
+  type: procedure
+  triggers_on_situation: [building_eval_set]
+  required_signals: ["production traffic can be sliced by intent, language and difficulty", "past incidents are retrievable", "a held-out split can be reserved and never tuned on"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [eval_set, held_out_split]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    A synthetic-only set misses Hinglish, typos and the real intent mix
+  worked_example: >-
+    600 items: 400 from logs across 12 intents, 100 past failures, 100
+    adversarial. 20% held out and never tuned on
+  domain_scenario: >-
+    **Logistics**: a delivery-complaint bot ("parcel delivered dikha raha hai
+    par mila nahi")
+  rule_of_thumb: >-
+    sample real traffic by intent, language and difficulty, then add every past
+    incident and edge cases
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates NOT STATED, recorded as `false` and reported. This is the remedy E5
+    prescribes when every candidate saturates, and the failures-as-tests
+    flywheel CLAUDE.md section 6 calls a procedure; the edge to E5 is EL-117's
+
+I9_shadow_then_canary:
+  section: I
+  name: Shadow mode → staged canary with auto-rollback
+  type: procedure
+  triggers_on_situation: [shipping_change]
+  required_signals: ["the new model can run silently on live traffic", "traffic share can be ramped in stages", "rollback triggers are defined before the ramp"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [shadow_disagreement_rate, canary_rollback_trigger]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Offline eval misses production edge cases, so you need to limit the blast
+    radius
+  worked_example: >-
+    Shadow for 1 week on 50,000 requests with 6% disagreement. 5% canary for 48
+    h, auto-rollback if escalation rises > 1 pt
+  domain_scenario: >-
+    **Healthcare**: an appointment-booking bot for a multi-city hospital chain
+  rule_of_thumb: >-
+    run the new model silently on live traffic, then ramp 1% → 10% → 50% →
+    100% with rollback triggers
+  source_ref: evals-situation-to-technique.md § I
+  extraction_notes: >-
+    gates STATED: auto-rollback on a stated trigger is an absolute gate.
+    Shares shipping_change with I1, which is correct - a CI gate and a staged
+    rollout are both things you do when shipping - and is the only repeated
+    lifecycle member in I

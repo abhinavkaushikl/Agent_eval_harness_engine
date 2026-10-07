@@ -1,0 +1,61 @@
+# Section A, the grading ladder. Content and every figure are from
+# knowledge rules/A-choosing-how-to-grade.md and the master lookup's section A
+# rows. A2 is written before A1 on purpose: load_records() sorts by id, so a
+# file whose records are out of order proves the sort rather than the sort
+# happening to agree with the file.
+
+A2_end_state_verification:
+  section: A
+  name: End-state verification
+  type: grader
+  triggers_on_situation: [agent_action]
+  required_signals: ['the agent acted on a real system of record', 'post-conditions are stateable']
+  required_tools: [db_connection, snapshot_restore]
+  ladder_priority: 2
+  requires: {}
+  produces: [end_state_pass_rate]
+  gates: absolute
+  companion_checks: [C1_wilson_ci]
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Agents say "Done, I've updated it" when nothing changed. Transcript grading
+    rewards the claim, not the action
+  worked_example: >-
+    150 servicing tasks: transcript judge says 91% complete, DB check says 74%.
+    17 pts were false claims of success
+  domain_scenario: '**Insurance**: the policy-servicing agent says "nominee updated". Read the nominee field in the policy admin system'
+  rule_of_thumb: null
+  source_ref: A-choosing-how-to-grade.md § A2
+  extraction_notes: null
+
+A1_execution_based:
+  section: A
+  name: Execution-based grading
+  type: grader
+  triggers_on_situation: [code_generation, sql_generation, api_endpoint]
+  required_signals: ['the output runs', 'a frozen DB snapshot or hidden test suite exists']
+  required_tools: [sandbox, test_runner]
+  ladder_priority: 1
+  requires: {}
+  produces: [execution_match]
+  gates: absolute
+  companion_checks: [C1_wilson_ci]
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    String match marks correct-but-different SQL (reordered JOINs, aliases) as
+    wrong and near-identical wrong SQL as right
+  worked_example: >-
+    200 text-to-SQL items: exact-match 41%, execution-match 68%. The 27-pt gap
+    was all equivalent rewrites
+  domain_scenario: '**Fintech**: NL-to-SQL over a UPI transaction warehouse. For "total refunds above ₹5,000 in Q2", compare result sets on a frozen snapshot'
+  rule_of_thumb: if a line of code can check it, a line of code should check it
+  source_ref: A-choosing-how-to-grade.md § A1
+  extraction_notes: >-
+    Mutation testing ("if the mutant still passes more than 5% of the time")
+    is a property of the fixtures, not a readiness threshold on this record

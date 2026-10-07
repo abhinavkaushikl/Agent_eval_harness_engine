@@ -1,0 +1,12 @@
+# A whole-file failure: 'produces' is written as a block sequence, which is
+# outside the format subset. The file yields no records at all -- and the other
+# three files in this directory must still be read and still report their own
+# problems, which is the entire point of aggregating by file.
+
+C1_wilson_ci:
+  section: C
+  name: Wilson confidence interval
+  type: statistic
+  triggers_on_situation: [small_sample]
+  produces:
+    - wilson_ci

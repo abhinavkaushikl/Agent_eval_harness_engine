@@ -1,0 +1,179 @@
+# Section J - CHOOSING A MODEL. Five records, one per master-lookup row, in the
+# deep dive's numbering (J1-J5, from '^# J[0-9]+ ' headers). These complete the
+# skeleton at 73.
+#
+# All five are PROCEDURES: each is a sequenced way of narrowing a field of
+# candidates, not a number or an inference. They trigger on
+# lifecycle.model_selection throughout, with comparison.many_candidates on
+# J1/J2 (where the Situation cell counts candidates) and
+# comparison.external_leaderboard on J4/J5 (where the input is someone else's
+# published number).
+#
+# gates is `false` on all five and the source states no gate for any of them:
+# model selection ends in a choice, and the thing that blocks is the eval the
+# chosen model then has to pass (section I). Listed in the report with I3, I5,
+# I6 and I8 as the rows whose gates would be null if Gate had a null member.
+#
+# Two ranges seen and NOT recorded in requires: J2's "300–500 items" and J5's
+# "100–200 item held-out set". Same rule as E4, F1, F6, H5 and H7.
+
+J1_constraint_filter_smoke:
+  section: J
+  name: Hard-constraint filter → 50-item smoke test
+  type: procedure
+  triggers_on_situation: [model_selection, many_candidates]
+  required_signals: ["the non-negotiables are written down (price, latency, context, language, data residency)", "a 50-item domain test can be assembled quickly"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [surviving_candidates, smoke_test_score]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    A full eval on 15 models burns weeks on candidates that were never viable
+  worked_example: >-
+    15 → 9 on India data residency and ≤ 2 s p95 latency → 50-item smoke test →
+    top 4
+  domain_scenario: >-
+    **Fintech**: a lending platform with RBI data-localisation requirements
+  rule_of_thumb: >-
+    eliminate on non-negotiables (price, latency, context, language, data
+    residency), then run a tiny domain test
+  source_ref: evals-situation-to-technique.md § J
+  extraction_notes: >-
+    CLAUDE.md section 4 calls this "benchmarks as filter". The 50-item count is
+    part of the technique's name and stays in name and rule_of_thumb; it is not
+    a readiness threshold on evidence, so requires stays empty
+
+J2_full_domain_eval:
+  section: J
+  name: Full domain eval (300–500 items) with paired stats + human pairwise review on a subset
+  type: procedure
+  triggers_on_situation: [model_selection, many_candidates]
+  required_signals: ["the shortlisted models can be run on the same items", "humans are available for a preference subset on the top two"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [paired_difference, human_preference_rate]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Small sets can't separate close models, so you pick on noise
+  worked_example: >-
+    400 items: the top 2 are 1.5 pts apart and the paired CI includes 0 →
+    decide on cost and latency
+  domain_scenario: >-
+    **Insurance**: choosing the model for a claims-summary copilot
+  rule_of_thumb: >-
+    paired comparison on the same items with CIs, plus 100 human preference
+    pairs for the top 2
+  source_ref: evals-situation-to-technique.md § J
+  extraction_notes: >-
+    "300–500 items" is a range and is NOT recorded in requires. The record
+    leans on B1 (paired evaluation) and B2 (pairwise preference) rather than
+    restating them; those edges are EL-117's. CLAUDE.md section 4 calls this
+    "own-data eval"
+
+J3_cost_quality_pareto:
+  section: J
+  name: "Cost–quality Pareto frontier: pick the cheapest model within the CI of the best"
+  type: procedure
+  triggers_on_situation: [model_selection]
+  required_signals: ["a score and a rupee cost per 1,000 tasks exist for each candidate", "a CI on the best model's score is available"]
+  required_tools: [cost_api]
+  ladder_priority: null
+  requires: {}
+  produces: [pareto_frontier, selected_model]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    Teams pay 5× for quality that is statistically indistinguishable
+  worked_example: >-
+    A: 86% at ₹1,200/1k tasks. B: 84.5% at ₹240. Paired CI of the difference
+    [−0.4, +3.4] → ship B and save ₹960/1k tasks
+  domain_scenario: >-
+    **E-commerce**: product-review summarisation across 2 crore reviews
+  rule_of_thumb: >-
+    plot score against ₹ per 1,000 tasks, and treat models inside the best
+    model's CI as equivalent
+  source_ref: evals-situation-to-technique.md § J
+  extraction_notes: >-
+    The record depends on a CI it does not itself produce, which is C1's or
+    B1's job; the dependency is a requires or unlocks edge for EL-117
+
+J4_same_harness:
+  section: J
+  name: Same benchmark version, same shots/CoT, same harness, or rerun it yourself
+  type: procedure
+  triggers_on_situation: [model_selection, external_leaderboard]
+  required_signals: ["the published setup (benchmark version, shot count, CoT) is discoverable", "the benchmark can be rerun locally if it is not"]
+  required_tools: [source_doc_read]
+  ladder_priority: null
+  requires: {}
+  produces: [normalised_score]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Differences in setup (5-shot CoT vs 0-shot) exceed the model differences
+  worked_example: >-
+    X "82%" (5-shot CoT) vs Y "78%" (0-shot). Both rerun 0-shot on one harness:
+    X 77%, Y 78%
+  domain_scenario: >-
+    **Legal**: comparing models on legal-reasoning benchmarks for a law-firm
+    copilot
+  rule_of_thumb: >-
+    normalise the evaluation setup before comparing
+  source_ref: evals-situation-to-technique.md § J
+  extraction_notes: >-
+    Typed `procedure` per the ticket, although the row reads as a constraint on
+    comparison ("normalise the setup before comparing") in the same way B5
+    does. B5 is the statistical half of the same worry - compute the CI from n
+    - and the two are not merged
+
+J5_replicate_vendor_claim:
+  section: J
+  name: Replicate on your own 100–200 item held-out set
+  type: procedure
+  triggers_on_situation: [model_selection, external_leaderboard]
+  required_signals: ["a held-out set of your own real data exists", "your own grader can score the vendor's model"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [replicated_score]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Vendors cherry-pick benchmarks, settings and slices, and omit n and CIs
+  worked_example: >-
+    Claim: "95% on Indian invoices". Your 150 invoices: 81% field-level, 64% on
+    handwritten ones
+  domain_scenario: >-
+    **Logistics**: a vendor pitching GST e-way bill and invoice extraction
+  rule_of_thumb: >-
+    run the vendor's model on your real data with your grader
+  source_ref: evals-situation-to-technique.md § J
+  extraction_notes: >-
+    "100–200 item held-out set" is a range and is NOT recorded in requires,
+    although it is the row's own readiness condition. The anti_pattern names
+    omitted n and CIs, which is exactly what C1 and B5 supply; edges are
+    EL-117's

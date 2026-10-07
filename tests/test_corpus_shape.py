@@ -87,7 +87,7 @@ def test_total_technique_count(corpus_dir: Path) -> None:
 
 
 def test_every_row_has_six_columns(corpus_dir: Path) -> None:
-    """Six, not the five CLAUDE.md s4 describes -- see the open sixth-column question."""
+    """Six columns, the sixth being `domain_scenario` per decision EL-011."""
     require_corpus_files(corpus_dir, (MASTER_LOOKUP,))
     bad = [
         (section, cells[1].strip()[:50], len(cells))

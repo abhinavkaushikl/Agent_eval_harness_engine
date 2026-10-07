@@ -1,0 +1,31 @@
+# Section B. Figures from the master lookup's "Two paired binary results" row.
+# gates is written as a bare `false`, which YAML reads as the boolean -- the one
+# place the on-disk format and the Gate enum disagree, and the reason
+# loader._as_gate() exists.
+
+B3_mcnemar:
+  section: B
+  name: McNemar's test
+  type: statistic
+  triggers_on_situation: [two_candidates]
+  required_signals: ['paired binary outcomes on the same items']
+  required_tools: []
+  ladder_priority: null
+  requires: {discordant_pairs: 25}
+  produces: [chi_square, p_value]
+  gates: false
+  companion_checks: [C1_wilson_ci]
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    A two-proportion z-test assumes independent samples. Reusing the same items
+    breaks that and gives the wrong p-value
+  worked_example: >-
+    500 claims: b = 40, c = 65. chi-square = (abs(40-65) - 1)^2 / 105 = 5.49,
+    p = 0.019 -> the new model is better
+  domain_scenario: '**Insurance**: old vs new fraud-flag classifier on the same 500 motor claims'
+  rule_of_thumb: b + c < 25 -> exact binomial instead
+  source_ref: master lookup § B
+  extraction_notes: null

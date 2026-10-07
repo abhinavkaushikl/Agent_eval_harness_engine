@@ -1,0 +1,238 @@
+# Section B - COMPARING TWO THINGS. Seven records, one per master-lookup row,
+# in the deep dive's numbering (B1-B7, from '^# B[0-9]+ ' headers).
+#
+# Skeleton extraction from evals-situation-to-technique.md only. requires is {}
+# everywhere (section B's rows state no readiness threshold), the three
+# cross-reference fields are [] everywhere, and ladder_priority is null. See
+# A_grading.yaml's header for how gates and the two cost fields were derived.
+#
+# B1, B2 and B3 all trigger on two_candidates and are NOT merged: the lookup
+# commits to a different technique per row (per-item difference, preference
+# judging, discordant-pair test) and the ticket forbids merging.
+
+B1_paired_evaluation:
+  section: B
+  name: Paired evaluation + paired bootstrap CI
+  type: statistic
+  triggers_on_situation: [two_candidates]
+  required_signals: ["both versions ran on the same items", "a per-item outcome is recorded for each version"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [paired_difference, paired_bootstrap_ci]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    An unpaired comparison lets item-difficulty variance swamp the signal, so a
+    real win looks like noise (or noise looks like a win)
+  worked_example: >-
+    400 items: A 78%, B 81%. Unpaired 95% CI of the difference is [−2.6, +8.6];
+    paired (10 regressed, 22 improved) is [+0.2, +5.8] → a real win
+  domain_scenario: >-
+    **Fintech**: loan-eligibility explainer prompt v3 vs v4 on the same 400
+    applicant profiles
+  rule_of_thumb: >-
+    run both versions on the same items and analyse the per-item difference
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: null
+
+B2_pairwise_preference:
+  section: B
+  name: Pairwise preference judging with a position swap
+  type: grader
+  triggers_on_situation: [two_candidates]
+  required_signals: ["two candidate answers exist for the same input", "the judge can be run in both presentation orders"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [win_rate, tie_rate]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Scoring each answer separately gives both 8/10 even when one is clearly
+    better, because absolute scales are insensitive
+  worked_example: >-
+    300 pairs × 2 orders: B wins 58%, tie 12%, A wins 30%
+  domain_scenario: >-
+    **Legal**: two summaries of a 40-page commercial lease for a Bengaluru
+    office. Which one flags the lock-in and escalation clauses correctly?
+  rule_of_thumb: >-
+    the judge (or a human) sees A and B and picks one. Run it in both orders
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: >-
+    Typed `grader` because the technique renders a verdict on artifacts, which
+    is CLAUDE.md section 6's test, and not `metric` although it produces a win
+    rate. This is the one grader in these three sections outside A1-A6, so it
+    is the record that shows a grader can exist with no rung on section A's
+    ladder: the position swap is the mitigation for position_bias_risk, which
+    is section F's row, not a trigger here
+
+B3_mcnemar:
+  section: B
+  name: McNemar's test
+  type: statistic
+  triggers_on_situation: [two_candidates]
+  required_signals: ["paired binary outcomes on the same items", "discordant pairs can be counted: b old-right/new-wrong, c old-wrong/new-right"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [chi_square, p_value]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    A two-proportion z-test assumes independent samples. Reusing the same items
+    breaks that and gives the wrong p-value
+  worked_example: >-
+    500 claims: b = 40, c = 65. χ² = (abs(40−65) − 1)² / 105 = 5.49, p ≈ 0.019
+    → the new model is better
+  domain_scenario: >-
+    **Insurance**: old vs new fraud-flag classifier on the same 500 motor
+    claims
+  rule_of_thumb: >-
+    a χ² test on discordant pairs only: b (old right, new wrong) vs c (old
+    wrong, new right)
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: >-
+    The lookup states the χ² formula only with this row's numbers substituted
+    ("(abs(40−65) − 1)² / 105"), so it stays in worked_example verbatim rather
+    than being generalised to symbols in rule_of_thumb, which would be an
+    interpretation. The symbolic form is EL-113's to copy from the deep dive
+
+B4_bradley_terry:
+  section: B
+  name: Bradley–Terry (or Elo) from pairwise comparisons, with bootstrap CIs
+  type: statistic
+  triggers_on_situation: [many_candidates]
+  required_signals: ["five or more options to rank", "pairwise win/loss data across the options", "enough comparisons per pair to resample"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [latent_strength, rank_interval]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Averaging absolute scores from different judges gives an arbitrary order,
+    and a bare rank hides ties
+  worked_example: >-
+    6 prompts, 15 pairs × 100 judgments = 1,500 comparisons. The CIs for ranks
+    2–4 overlap, so treat them as a tie and choose on cost
+  domain_scenario: >-
+    **HR**: ranking 6 prompts that rewrite job descriptions for gender-neutral
+    language
+  rule_of_thumb: >-
+    fit a latent strength per option from pairwise win/loss data, then resample
+    to get a rank interval
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: null
+
+B5_ci_from_n:
+  section: B
+  name: Compute the CI from n before reading the gap
+  type: statistic
+  triggers_on_situation: [external_leaderboard]
+  required_signals: ["the leaderboard reports both the score and n", "the metric is a proportion"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [standard_error, confidence_interval]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: null
+  anti_pattern: >-
+    Teams pick a model over a 0.8-pt gap that sits well inside the noise
+  worked_example: >-
+    n = 500, p = 0.85 → SE = 1.6 pts, CI ±3.1. Models at 85.2 and 84.4 are
+    indistinguishable
+  domain_scenario: >-
+    **Telecom**: picking a model for Hindi call-centre summaries from a public
+    leaderboard
+  rule_of_thumb: >-
+    SE = √(p(1−p)/n), and the 95% CI is ±1.96·SE
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: >-
+    Type is genuinely arguable, as the ticket anticipated. "Compute the CI from
+    n" is an instruction about reading someone else's number, so it reads as a
+    `constraint` ("do not compare scores before computing the interval"); it is
+    typed `statistic` because what it produces is an interval from a formula
+    the cell states, and a constraint produces no number. capture_cost is null
+    because nothing is captured: n and p come off a published leaderboard
+
+B6_bootstrap_ci:
+  section: B
+  name: Bootstrap confidence interval
+  type: statistic
+  triggers_on_situation: [metric_without_formula]
+  required_signals: ["the metric has no closed-form standard error", "per-item results can be resampled with replacement"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [bootstrap_ci]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: null
+  anti_pattern: >-
+    There is no textbook formula for macro-F1, nDCG or ratio metrics, so people
+    report bare point estimates
+  worked_example: >-
+    Macro-F1 = 0.71. Over 5,000 resamples the 95% CI is [0.66, 0.75]
+  domain_scenario: >-
+    **E-commerce**: macro-F1 across 14 return-reason categories ("size issue",
+    "damaged", "not as described"…)
+  rule_of_thumb: >-
+    resample items with replacement 1,000–10,000×, recompute the metric, and
+    take the 2.5th/97.5th percentiles
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: null
+
+B7_cluster_bootstrap:
+  section: B
+  name: Cluster bootstrap
+  type: statistic
+  triggers_on_situation: [grouped_items]
+  required_signals: ["items belong to identifiable groups such as conversations or documents", "the group id is recorded for every item"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [cluster_bootstrap_ci]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: null
+  anti_pattern: >-
+    Ten questions from one document are correlated. An item-level CI comes out
+    too narrow and gives false confidence
+  worked_example: >-
+    1,000 questions from 100 contracts: item-level CI ±2.4 pts, cluster CI ±5.1
+    pts
+  domain_scenario: >-
+    **Legal**: QA over 100 vendor contracts with 10 questions each
+  rule_of_thumb: >-
+    resample groups, not items
+  source_ref: evals-situation-to-technique.md § B
+  extraction_notes: >-
+    The Situation cell is "Items come in groups", which CLAUDE.md section 6
+    settled as the single member grouped_items in the data family

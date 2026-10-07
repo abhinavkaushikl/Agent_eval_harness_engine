@@ -1,0 +1,32 @@
+# Deliberately malformed. Five distinct problems in one record:
+#   1. an 'id' field in the body, where the id is the top-level key
+#   2. an unknown field, 'ladder_rung'
+#   3. 'gates' missing entirely
+#   4. an unknown situation, 'sql_gen' (the member is sql_generation)
+#   5. an unknown tool, 'sandbox_runner' (the member is sandbox)
+# All five must appear in one RegistryError. Nothing in this directory is ever
+# expected to load.
+
+A1_execution_based:
+  id: A1_execution_based
+  ladder_rung: 1
+  section: A
+  name: Execution-based grading
+  type: grader
+  triggers_on_situation: [sql_gen]
+  required_signals: ['the output runs']
+  required_tools: [sandbox_runner]
+  ladder_priority: 1
+  requires: {}
+  produces: [execution_match]
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: Grading runnable output by its text
+  worked_example: '200 text-to-SQL items: exact-match 41%, execution-match 68%'
+  domain_scenario: null
+  rule_of_thumb: null
+  source_ref: A-choosing-how-to-grade.md § A1
+  extraction_notes: null

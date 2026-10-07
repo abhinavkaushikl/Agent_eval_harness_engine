@@ -1,0 +1,283 @@
+# Section E - WHEN A NUMBER LOOKS WRONG. Eight records, one per master-lookup
+# row, in the deep dive's numbering (E1-E8, from '^# E[0-9]+ ' headers).
+#
+# All eight are symptom-triggered and all eight are typed `diagnostic`: they
+# explain a surprising number rather than producing or gating one. The eight
+# Situation cells map ONE-TO-ONE onto the measurement family, which is what
+# that family exists for:
+#   E1 score_jumped              E5 all_candidates_high
+#   E2 score_up_business_flat    E6 all_candidates_zero
+#   E3 length_increased          E7 benchmark_too_good
+#   E4 no_change_score_moved     E8 single_benchmark_dominance
+# The family's two remaining members belong to section C: many_slices_checked
+# (C5) and score_near_0_or_100 (C4). Nothing was left over either way.
+#
+# gates is `false` for all eight: a diagnostic is reported, and the decision it
+# informs is gated by the record that produced the number. See
+# A_grading.yaml's header for how gates and the cost fields were derived.
+
+E1_per_item_diff:
+  section: E
+  name: Per-item diff, then read the flipped items
+  type: diagnostic
+  triggers_on_situation: [score_jumped]
+  required_signals: ["per-item verdicts exist for both runs", "the two runs are over the same items"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [flipped_item_count, flipped_items]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    Big jumps are usually a grader, parser or leakage change, not model
+    improvement
+  worked_example: >-
+    71% → 79%: 64 items flipped, and 51 flipped only because the new output
+    format matched the grader's regex
+  domain_scenario: >-
+    **E-commerce**: product Q&A bot "improved" overnight after a prompt tweak
+  rule_of_thumb: >-
+    list every item whose verdict changed between runs and read them by hand
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: null
+
+E2_metric_outcome_check:
+  section: E
+  name: Compare eval-set distribution to production + check metric–outcome correlation
+  type: diagnostic
+  triggers_on_situation: [score_up_business_flat]
+  required_signals: ["the eval set and production traffic can both be sliced the same way", "a business KPI is recorded alongside the eval score"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [slice_mix_divergence, metric_outcome_correlation]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    The offline set no longer represents real traffic, so you optimised a proxy
+  worked_example: >-
+    Offline +6 pts, CSAT flat at 3.9/5. The eval set is 80% English while
+    traffic is 55% Hinglish
+  domain_scenario: >-
+    **Telecom**: support bot for prepaid recharge issues
+  rule_of_thumb: >-
+    compare slice mix (language, intent) between eval and traffic, and regress
+    the business KPI on the eval score
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    The row prescribes two checks (distribution comparison and metric-outcome
+    correlation) and is kept as one record because the lookup commits to one
+    row; splitting it would be the merge rule run backwards
+
+E3_length_controlled_win_rate:
+  section: E
+  name: Length-controlled win rate
+  type: diagnostic
+  triggers_on_situation: [length_increased]
+  required_signals: ["output length is recorded per item", "pairwise preferences are available"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [length_controlled_win_rate]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    LLM judges prefer longer answers (verbosity bias), so you are measuring
+    word count
+  worked_example: >-
+    Raw win rate 64% with +140 tokens on average. Length-controlled: 51%, a
+    coin flip
+  domain_scenario: >-
+    **Insurance**: policy-exclusion explainer. The new prompt adds paragraphs,
+    not accuracy
+  rule_of_thumb: >-
+    regress the preference on the length difference (or length-match pairs) and
+    report the length-adjusted win rate
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    AGENT.md section 5 makes this a non-negotiable companion - "any judge score
+    is reported with output length" - so A4 and B2 should name E3 in
+    companion_checks. Cross-references are EL-115's, so the edge is not written
+    here
+
+E4_aa_baseline:
+  section: E
+  name: "A/A baseline: run the identical config 3–5× to get the noise band"
+  type: diagnostic
+  triggers_on_situation: [no_change_score_moved]
+  required_signals: ["the identical configuration can be re-run unchanged", "the provider model version and judge temperature are observable"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [noise_band, run_to_run_sd]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    Without a noise floor you chase ghosts and "fix" random fluctuation
+  worked_example: >-
+    3 identical runs: 81.2, 79.6, 82.0 → SD 1.2. A 1.5-pt move is inside the
+    ±2 SD band = noise
+  domain_scenario: >-
+    **Legal**: clause-classification regression suite on NDAs
+  rule_of_thumb: >-
+    measure run-to-run SD with no change, and also check the provider model
+    version and judge temperature
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    The Use cell states "3–5×", a RANGE, so requires stays empty: picking 3 or
+    5 out of a stated range is an invented number under CLAUDE.md section 3.
+    Contrast C3, whose "k ≥ 5" is a single bound and IS recorded. Reported for
+    EL-115 to settle against the deep dive
+
+E5_harder_set:
+  section: E
+  name: Build a harder set (hard-negative mining from production failures + adversarial items)
+  type: diagnostic
+  triggers_on_situation: [all_candidates_high]
+  required_signals: ["every candidate scores near the top of the range", "production failures are retrievable to mine from"]
+  required_tools: [production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [hard_set_score_spread]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: high
+  capture_cost: high
+  anti_pattern: >-
+    A saturated benchmark compresses real differences into noise
+  worked_example: >-
+    5 models at 91–94% on 500 items. A 200-item hard set spreads them from 48%
+    to 71%
+  domain_scenario: >-
+    **Fintech**: GST query bot. Everyone aces "what is GST?" but fails on RCM
+    and ITC reversal questions
+  rule_of_thumb: >-
+    collect the items that current models fail on in production, and add
+    perturbed and edge-case variants
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    The one type call in E that is genuinely arguable. The Situation is the
+    ceiling symptom, which CLAUDE.md section 6 lists under `diagnostic`, but
+    the Use cell prescribes building an eval set, which section 6 lists under
+    `procedure`. Typed `diagnostic` to match the section and the ticket; the
+    remedy it prescribes is section I's I8 (eval set from logs). Flagged for
+    EL-115
+
+E6_oracle_run:
+  section: E
+  name: "Oracle run: execute a known-correct solution through the harness first"
+  type: diagnostic
+  triggers_on_situation: [all_candidates_zero]
+  required_signals: ["a scripted known-correct solution can be written", "the oracle can be fed through the same pipeline as the system"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [oracle_pass_rate]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    0% is usually a timeout, tool-schema or environment bug, and gives no
+    gradient to learn from
+  worked_example: >-
+    0/50 tasks. The oracle also fails 50/50 because of a 30 s timeout when
+    tasks need 90 s. Fixed → 34%
+  domain_scenario: >-
+    **Logistics**: agent that books shipments on a carrier portal sandbox
+  rule_of_thumb: >-
+    feed a scripted perfect agent or answer through the same pipeline. If it
+    fails, the harness is broken
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    This is the infra-versus-capability distinction section H names as H-row
+    content; E6 is its diagnostic form for a zero score. No cross-reference
+    written, per the stage's rule
+
+E7_contamination_check:
+  section: E
+  name: "Contamination check: paraphrase or perturb test items and compare"
+  type: diagnostic
+  triggers_on_situation: [benchmark_too_good]
+  required_signals: ["the benchmark items can be rewritten without changing the answer", "the original items are available for n-gram overlap"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [paraphrase_score_drop, ngram_overlap]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    The model memorised the test set, so the score measures recall of items,
+    not ability
+  worked_example: >-
+    88% on the original 300 items, 71% on paraphrased twins → a 17-pt drop =
+    memorisation
+  domain_scenario: >-
+    **Healthcare**: a vendor model scores 88% on a NEET-PG-style medical MCQ
+    set
+  rule_of_thumb: >-
+    rewrite the items (same answer, new surface form) plus n-gram overlap and
+    canary-string checks
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    The Situation cell is benchmark_too_good; the data family's
+    contamination_risk is the a-priori form of the same worry and is NOT
+    triggered here, because this row fires on an observed score. Flagged for
+    EL-115
+
+E8_multi_benchmark_check:
+  section: E
+  name: Check on 3+ independent benchmarks + your own internal set
+  type: diagnostic
+  triggers_on_situation: [single_benchmark_dominance]
+  required_signals: ["three or more independent benchmarks cover the capability", "an internal set representative of your traffic exists"]
+  required_tools: []
+  ladder_priority: null
+  requires: {benchmarks: 3}
+  produces: [rank_consistency]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    A single-benchmark lead usually means tuning to that benchmark's format,
+    not general skill
+  worked_example: >-
+    Model X leads benchmark A by 9 pts, but ranks 4th of 6 on 3 other
+    benchmarks and on your 300-item internal set
+  domain_scenario: >-
+    **E-commerce**: choosing a model for catalogue attribute extraction
+    (fabric, fit, sleeve type)
+  rule_of_thumb: >-
+    look at rank consistency across evaluations
+  source_ref: evals-situation-to-technique.md § E
+  extraction_notes: >-
+    "3+" in the Use cell is a single lower bound, so it IS recorded as
+    {benchmarks: 3}, the same rule that recorded C3's "k ≥ 5" and left E4's
+    "3–5×" range empty

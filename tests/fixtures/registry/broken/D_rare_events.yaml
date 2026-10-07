@@ -1,0 +1,8 @@
+# Two problems at the top level of the file, where a record id is the only
+# thing a key may be:
+#   1. 'notes' is not a record id
+#   2. 'D1_recall_not_accuracy' has a scalar body rather than a field block
+
+notes: extracted from the section D deep dive
+
+D1_recall_not_accuracy: see the deep dive

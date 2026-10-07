@@ -1,0 +1,324 @@
+# Section F - TRUSTING YOUR GRADER. Nine records, one per master-lookup row, in
+# the deep dive's numbering (F1-F9, from '^# F[0-9]+ ' headers).
+#
+# F is the mixed section: six PROCEDURES (F1, F4, F6, F7, F8, F9), two
+# STATISTICS (F2 Cohen's κ, F3 Krippendorff's α) and one CONSTRAINT (F5
+# cross-family panel, which is AGENT.md section 5's "never same-family
+# judging").
+#
+# TWO VOCABULARY GAPS, reported rather than patched. The grader_trust family
+# has seven members and F has nine rows. F7 ("Judge grades the wrong
+# dimension") and F8 ("Want better judge accuracy") have NO member: both are
+# "the judge I already built is not good enough", which no member names. Both
+# are mapped to new_judge_built, the nearest honest member, so F1/F7/F8 all
+# fire together for a session that has just built a judge. That is defensible
+# for the planner and still wrong as vocabulary. See each record's
+# extraction_notes.
+#
+# F1's "150–200 human gold labels" is a RANGE and is therefore NOT recorded in
+# requires - the same rule that left E4's "3–5×" empty. It is the most
+# consequential threshold left on the table in this stage.
+
+F1_gold_label_validation:
+  section: F
+  name: Validate against 150–200 human gold labels before use
+  type: procedure
+  triggers_on_situation: [new_judge_built]
+  required_signals: ["a stratified sample of items can be drawn", "humans are available to label that sample", "judge verdicts can be compared item by item"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [judge_accuracy, per_class_recall]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    An unvalidated judge has systematic quirks, and you end up optimising the
+    model toward them
+  worked_example: >-
+    200 items: overall judge accuracy 84%, but recall on the "fail" class is
+    only 52%, so it misses half of the bad outputs
+  domain_scenario: >-
+    **Fintech**: a judge checking loan-collection messages against the RBI Fair
+    Practices Code
+  rule_of_thumb: >-
+    humans label a stratified sample, and you compare judge verdicts item by
+    item
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    "150–200" is a range, so requires stays empty rather than picking 150.
+    This is the threshold most likely to be wanted as a readiness gate, and
+    EL-115 should copy whichever single bound the deep dive states. gates is
+    `absolute` because the row says "before use": an unvalidated judge is a
+    must-fix, not a quality score
+
+F2_cohens_kappa:
+  section: F
+  name: Cohen's κ + per-class precision/recall of the judge
+  type: statistic
+  triggers_on_situation: [measuring_agreement]
+  required_signals: ["two raters labelled the same items", "a confusion matrix of judge against human is available"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [cohens_kappa, per_class_precision, per_class_recall]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    Raw % agreement looks high when most items are "pass"
+  worked_example: >-
+    90% raw agreement with chance agreement 0.82 → κ = 0.44, which is only
+    moderate
+  domain_scenario: >-
+    **Insurance**: judge for claim-rejection letter compliance (IRDAI wording)
+  rule_of_thumb: >-
+    κ = (p_o − p_e) / (1 − p_e), which corrects for chance agreement
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    The κ formula is stated symbolically in the lookup, so it goes in
+    rule_of_thumb verbatim - unlike B3's χ², which the lookup states only with
+    numbers substituted. No κ acceptance threshold is stated in this row
+    (CLAUDE.md section 6 mentions κ ≥ 0.6 / 0.8 from the deep dive), so
+    requires stays empty for EL-115
+
+F3_krippendorff_alpha:
+  section: F
+  name: Krippendorff's α
+  type: statistic
+  triggers_on_situation: [multiple_annotators]
+  required_signals: ["more than two labellers", "labels may be missing for some item-rater pairs", "the scale is nominal or ordinal"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [krippendorff_alpha]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: high
+  anti_pattern: >-
+    Cohen's κ only handles two raters and breaks when not every item gets every
+    label
+  worked_example: >-
+    4 annotators, 300 items, some double-labelled only: α = 0.61 (< 0.667) →
+    rework the rubric before scaling
+  domain_scenario: >-
+    **HR**: rating AI-generated interview-feedback summaries
+  rule_of_thumb: >-
+    a reliability coefficient for any number of raters, missing labels, and
+    nominal or ordinal scales
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    The Example states "< 0.667" as the point at which you rework the rubric.
+    It is a quality bound on the RESULT, not a readiness threshold on the
+    evidence, so it is not recorded in requires. Reported for EL-115
+
+F4_position_swap_consistency:
+  section: F
+  name: Run both orders; count only consistent verdicts, and treat flips as ties
+  type: procedure
+  triggers_on_situation: [position_bias_risk]
+  required_signals: ["the judge can be presented A/B and B/A", "both verdicts are retained per pair"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [consistent_verdict_rate, flip_rate]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Position bias flips 10–30% of pairwise verdicts
+  worked_example: >-
+    400 pairs: 23% flipped when swapped. After treating flips as ties, B's win
+    rate dropped from 61% to 54%
+  domain_scenario: >-
+    **E-commerce**: comparing two product-description generators
+  rule_of_thumb: >-
+    present A/B and B/A, and accept a win only when both orders agree
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    B2 in section B already prescribes the position swap as part of pairwise
+    judging. The two rows are NOT merged, per the ticket: B2 is the comparison
+    technique and F4 is the judge-trust protocol that quantifies the bias
+
+F5_cross_family_panel:
+  section: F
+  name: Cross-family judge panel (3 judges from different vendors, majority vote)
+  type: constraint
+  triggers_on_situation: [self_preference_risk]
+  required_signals: ["judges from at least three different model families are reachable", "the generator's own family is known"]
+  required_tools: [llm_api_cross_family]
+  ladder_priority: null
+  requires: {}
+  produces: [panel_win_rate]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: high
+  capture_cost: medium
+  anti_pattern: >-
+    Self-preference bias inflates the judge's own vendor's outputs
+  worked_example: >-
+    A same-family judge gives its sibling a 61% win rate; a 3-family panel
+    gives 49%
+  domain_scenario: >-
+    **Telecom**: vendor bake-off between two model providers for a Hindi IVR
+    bot
+  rule_of_thumb: >-
+    several judges from different model families, aggregated
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    Typed `constraint`: AGENT.md section 5 states "never same-family judging"
+    as a hard rule and section 4 repeats it for the capability layer, so the
+    record's job is to prohibit, and the panel is what you do instead. This is
+    the one record in A-F requiring llm_api_cross_family, which is why that
+    member is a capability and not a transport (EL-002)
+
+F6_binary_criteria_rubric:
+  section: F
+  name: Replace the Likert scale with binary criteria (or pairwise)
+  type: procedure
+  triggers_on_situation: [scale_compressed]
+  required_signals: ["scores pile into two or three adjacent values", "quality can be decomposed into independent yes/no checks"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [criterion_pass_rate, human_rank_correlation]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    A compressed scale has no discriminating power
+  worked_example: >-
+    83% of scores land in {7, 8}. Switching to 6 binary checks spreads scores
+    1–6, and correlation with human rank rises from 0.31 to 0.72
+  domain_scenario: >-
+    **Legal**: grading AI-drafted legal notices under Section 138 NI Act
+    (cheque bounce)
+  rule_of_thumb: >-
+    split quality into 4–8 yes/no checks and sum them
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    "4–8 yes/no checks" is a range and stays in rule_of_thumb rather than
+    requires. A4 in section A is the same binary-criteria rubric arrived at
+    from the other direction (choosing a grader rather than repairing one), and
+    the two rows are not merged
+
+F7_one_call_per_criterion:
+  section: F
+  name: One judge call per criterion, with pass/fail few-shot examples for that criterion
+  type: procedure
+  triggers_on_situation: [new_judge_built]
+  required_signals: ["quality has separable dimensions such as factuality, tone and completeness", "pass and fail examples exist per dimension"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [per_criterion_verdict]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: low
+  anti_pattern: >-
+    A combined "quality" prompt lets fluency dominate correctness
+  worked_example: >-
+    The combined judge passed 40% of fluent-but-wrong answers. A separate
+    factuality call caught 88%
+  domain_scenario: >-
+    **Healthcare**: patient-education answers on diabetes diet, where a warm
+    tone hides wrong carb advice
+  rule_of_thumb: >-
+    a separate prompt per dimension (factuality, tone, completeness), each
+    asking for reasoning before the verdict
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    VOCABULARY GAP. The Situation cell is "Judge grades the wrong dimension",
+    and the grader_trust family has no member for it - the nearest neighbours
+    (scale_compressed, measuring_agreement) name different symptoms. Mapped to
+    new_judge_built, which is where a dimension confound is usually found, and
+    NOT patched by adding a member, per the ticket. A member such as
+    judge_dimension_confounded would be the fix if EL-103 is reopened
+
+F8_few_shot_from_disagreements:
+  section: F
+  name: Few-shot examples mined from judge–human disagreements + majority of 3 samples
+  type: procedure
+  triggers_on_situation: [new_judge_built]
+  required_signals: ["judge-human disagreements have been collected and labelled", "the judge can be sampled more than once per item"]
+  required_tools: [llm_api, human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [judge_agreement]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: medium
+  anti_pattern: >-
+    Generic instructions don't fix the judge's specific systematic errors
+  worked_example: >-
+    Agreement 78% → 86% after 8 disagreement examples → 89% with majority-of-3
+  domain_scenario: >-
+    **Fintech**: judge for mis-selling risk in mutual-fund chatbot answers
+  rule_of_thumb: >-
+    add the cases the judge got wrong as labelled examples, then sample 3× and
+    take the majority
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    VOCABULARY GAP, the second of two in F. The Situation cell is "Want better
+    judge accuracy", which is an intention rather than an observable
+    situation, and no grader_trust member names it. Mapped to new_judge_built
+    alongside F1 and F7. "Majority of 3" is a parameter of the technique and
+    sits in rule_of_thumb, not requires
+
+F9_fix_rubric_first:
+  section: F
+  name: "Fix the rubric first: a codebook with edge-case rulings + calibration rounds"
+  type: procedure
+  triggers_on_situation: [annotators_disagree]
+  required_signals: ["two or more human labellers disagree measurably", "adjudication sessions can be convened", "agreement can be re-measured after each round"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [post_calibration_agreement, edge_case_rulings]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    Human agreement is the ceiling for any grader, so noisy gold labels cap and
+    corrupt every downstream metric
+  worked_example: >-
+    κ = 0.42 → after 2 calibration rounds and 15 written edge-case rulings,
+    κ = 0.76
+  domain_scenario: >-
+    **Content moderation**: Hinglish hate-speech labelling, where sarcasm and
+    reclaimed slurs split annotators
+  rule_of_thumb: >-
+    adjudication sessions write down how each ambiguous case is resolved, and
+    you re-measure agreement
+  source_ref: evals-situation-to-technique.md § F
+  extraction_notes: >-
+    gates is `absolute` on the strength of the anti_pattern: the row states
+    human agreement is the CEILING for any grader, so everything downstream is
+    invalid until this is fixed. That is the one gating value in F that the
+    source argues for rather than leaving to interpretation

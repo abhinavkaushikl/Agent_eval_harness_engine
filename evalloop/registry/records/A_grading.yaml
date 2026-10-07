@@ -1,0 +1,248 @@
+# Section A - CHOOSING HOW TO GRADE. Seven records, one per master-lookup row,
+# in the deep dive's own numbering (A1-A7, from '^# A[0-9]+ ' headers).
+#
+# EL-110 is skeleton extraction from evals-situation-to-technique.md ONLY. The
+# deep dives were read for id numbering and nothing else, so three classes of
+# field are deliberately thin here and belong to EL-113:
+#   - requires: {} everywhere. The lookup states no readiness thresholds.
+#   - companion_checks / unlocks / conflicts_with: [] everywhere. The lookup has
+#     no column for them; the edges are stated in the deep dives.
+#   - ladder_priority: null everywhere, per the ticket. The ladder is EL-113's.
+#
+# gates, analysis_cost and capture_cost have no lookup column and no null
+# option in the schema, so they are derived, not copied: gates is `absolute`
+# where the output is a pass/fail verdict that can block on its own,
+# `statistical` where it is an inference that blocks only on clearing a bar,
+# and `false` where the record is an operating posture rather than a verdict.
+# Reported as interpretation for EL-113 to confirm against the deep dives.
+
+A1_execution_based:
+  section: A
+  name: Execution-based grading
+  type: grader
+  triggers_on_situation: [code_generation, sql_generation, api_endpoint]
+  required_signals: ["the output is runnable code, SQL or an API call", "a sandbox, test DB, unit-test suite or mock API exists to run it against"]
+  required_tools: [sandbox, test_runner]
+  ladder_priority: null
+  requires: {}
+  produces: [execution_match]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    String match marks correct-but-different SQL (reordered JOINs, aliases) as
+    wrong and near-identical wrong SQL as right
+  worked_example: >-
+    200 text-to-SQL items: exact-match 41%, execution-match 68%. The 27-pt gap
+    was all equivalent rewrites
+  domain_scenario: >-
+    **Fintech**: NL-to-SQL over a UPI transaction warehouse. For "total refunds
+    above ₹5,000 in Q2", compare result sets on a frozen snapshot
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    The Situation cell is one class of artifact ("code / SQL / an API call")
+    and maps to three members: code_generation, sql_generation, api_endpoint
+
+A2_end_state_verification:
+  section: A
+  name: End-state verification
+  type: grader
+  triggers_on_situation: [agent_action]
+  required_signals: ["the agent acted on a real system of record", "post-conditions are stateable as a query or assertion"]
+  required_tools: [db_connection]
+  ladder_priority: null
+  requires: {}
+  produces: [end_state_pass_rate]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: medium
+  anti_pattern: >-
+    Agents say "Done, I've updated it" when nothing changed. Transcript grading
+    rewards the claim, not the action
+  worked_example: >-
+    150 servicing tasks: transcript judge says 91% complete, DB check says 74%.
+    17 pts were false claims of success
+  domain_scenario: >-
+    **Insurance**: the policy-servicing agent says "nominee updated". Read the
+    nominee field in the policy admin system
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    The row names three ways to read the end state (DB row, API GET, file on
+    disk); only db_connection exists in the Tool enum, so the API and
+    filesystem cases are carried in required_signals instead of inventing
+    members. Flagged for EL-113
+
+A3_normalised_exact_match:
+  section: A
+  name: Normalised exact match (token-F1 for multi-word)
+  type: grader
+  triggers_on_situation: [qa_answer]
+  required_signals: ["the expected output is a short fact", "case, whitespace, unit and number formats can be normalised deterministically"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [normalised_exact_match, token_f1]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    An LLM judge on facts costs money, adds variance, and passes near-miss
+    numbers as "close enough"
+  worked_example: >-
+    "₹1,50,000", "150000" and "1.5 lakh" all normalise to 150000. 500 questions
+    graded in 2 s at ₹0
+  domain_scenario: >-
+    **Banking**: IFSC lookup. "HDFC0001234" must match exactly, because one
+    wrong character routes money to the wrong branch
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    "Output is a short fact" maps to qa_answer, the nearest member. The cell is
+    broader than the member: an extracted field is also a short fact, and that
+    case is A5's row. Flagged for EL-113
+
+A4_judge_binary_criteria:
+  section: A
+  name: LLM-as-judge with a binary-criteria rubric
+  type: grader
+  triggers_on_situation: [prose_generation, summarization]
+  required_signals: ["the output is open-ended text with no single correct answer", "the quality criteria can be written as explicit yes/no questions"]
+  required_tools: [llm_api]
+  ladder_priority: null
+  requires: {}
+  produces: [criterion_pass_rate]
+  gates: statistical
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: low
+  anti_pattern: >-
+    A holistic score collapses to 7–8 and doesn't tell you *what* failed, so
+    you can't fix it
+  worked_example: >-
+    5 criteria × 300 replies: judge–human κ = 0.78 with the checklist vs 0.41
+    with a 1–10 score
+  domain_scenario: >-
+    **Telecom**: Hinglish reply to "recharge ho gaya par balance nahi aaya".
+    Checks: states the 5–7 working-day refund timeline? No invented plan names?
+    Apologises once?
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    "Output is open-ended text" maps to two members, prose_generation and
+    summarization. rag_answer is also open-ended text and is deliberately NOT
+    triggered here, because section G owns RAG grading (faithfulness,
+    attribution); mapping it would create an A4-vs-G overlap for EL-116 to
+    untangle. Flagged for EL-113
+
+A5_schema_field_scoring:
+  section: A
+  name: Schema validation + field-level scoring
+  type: grader
+  triggers_on_situation: [structured_extraction]
+  required_signals: ["the output is structured data", "a JSON Schema or equivalent field contract exists", "per-field ground truth is available"]
+  required_tools: []
+  ladder_priority: null
+  requires: {}
+  produces: [schema_valid_rate, field_accuracy]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: low
+  capture_cost: low
+  anti_pattern: >-
+    Whole-object exact match hides the one field that is wrong 30% of the time
+    behind fields that are 99% right
+  worked_example: >-
+    1,000 invoices: object-level 62%. Field-level: invoice_date 99%, total 96%,
+    GSTIN 71% → fix GSTIN
+  domain_scenario: >-
+    **E-commerce**: GST invoice extraction. Validate the GSTIN against a
+    15-char regex and check HSN code, taxable value, and CGST/SGST vs IGST
+    split
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: null
+
+A6_expert_human_review:
+  section: A
+  name: Domain-expert human review, double-annotated and adjudicated
+  type: grader
+  triggers_on_situation: [high_stakes_decision]
+  required_signals: ["the decision is high-stakes and final", "two domain experts and a third adjudicator are available", "a stratified sample can be drawn"]
+  required_tools: [human_labels]
+  ladder_priority: null
+  requires: {}
+  produces: [expert_verdict, adjudicated_disagreement_count]
+  gates: absolute
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: high
+  capture_cost: high
+  anti_pattern: >-
+    Automated graders share blind spots with the model and pass fluent,
+    confident, clinically wrong answers
+  worked_example: >-
+    200 cases × 2 doctors, 31 disagreements adjudicated. Cost ≈ ₹1.2 lakh,
+    versus the liability of one wrong dosage
+  domain_scenario: >-
+    **Healthcare**: a pharmacy chatbot's drug-interaction advice (e.g.,
+    warfarin + an NSAID) before launch
+  rule_of_thumb: null
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    The row prescribes double annotation and third-party adjudication, which is
+    the measurement machinery section F quantifies (κ, α). No F record is
+    referenced here because cross-references are EL-113's and F is EL-111's
+
+A7_tiered_online_scoring:
+  section: A
+  name: Tiered online scoring
+  type: procedure
+  triggers_on_situation: [scoring_live_traffic]
+  required_signals: ["a score is needed on every production request", "deterministic checks and a sub-50ms classifier exist for the cheap tier", "a random sample of live traffic can be routed to an expensive judge"]
+  required_tools: [llm_api, production_logs]
+  ladder_priority: null
+  requires: {}
+  produces: [online_score, sampled_judge_score]
+  gates: false
+  companion_checks: []
+  unlocks: []
+  conflicts_with: []
+  analysis_cost: medium
+  capture_cost: high
+  anti_pattern: >-
+    A frontier judge on every call doubles cost and latency. No scoring at all
+    leaves you blind
+  worked_example: >-
+    20 lakh requests/day: full judge at ₹0.40 = ₹8 lakh/day. Classifier + 2%
+    judged sample ≈ ₹30,000/day
+  domain_scenario: >-
+    **E-commerce**: scan every order-status reply for leaked phone numbers or
+    addresses on a large marketplace support bot
+  rule_of_thumb: >-
+    regex, schema and a fine-tuned classifier (<50 ms) on every call, with an
+    expensive judge on a random 1–2% sample
+  source_ref: evals-situation-to-technique.md § A
+  extraction_notes: >-
+    A7 WRAPS the grading ladder rather than occupying a rung on it, per the
+    ticket and CLAUDE.md section 6, so ladder_priority stays null and its
+    relationship to the ladder is an open question for S6. Typed `procedure`
+    and not `grader`: it prescribes how to deploy graders across a traffic
+    tier, and renders no verdict of its own. The deterministic tier is A1/A3/A5
+    work and the sampled tier is A4 work, so the real shape is a composition of
+    other records, which the schema has no field for. Flagged for EL-113
