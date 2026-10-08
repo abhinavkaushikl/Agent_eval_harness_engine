@@ -147,7 +147,7 @@ Always prefer the highest rung that can answer the question:
 5. **Human:** queued for the developer when nothing lower can decide.
 6. **Distilled:** classifier distilled from judge/human labels.
 
-Runs parallel across artifacts. Sandbox: subprocess + rlimits + timeout + tempdir, where timeout → **INCONCLUSIVE** (never pass/fail).
+Runs parallel across artifacts. Sandbox: subprocess + rlimits + timeout + tempdir. A timeout is a **failure, logged separately**: verdict `failed`, class `timeout`, counted in every pass rate and never shown as a wrong answer (`A:37`). **INCONCLUSIVE** is for runs where the evaluation, not the artifact, failed (decision `EL-014`).
 
 ### 3.8 Statistics → Diagnostics  *(M1 stats, M3 diagnostics)*
 - **Statistics:** Wilson interval, bootstrap, cluster bootstrap, McNemar, permutation test, noise floor, power. Rules of thumb kept verbatim: `margin ≈ 100/√n` (B5), `n ≈ 16·p(1−p)/δ²` (C2), noise floor from `k ≥ 5` repeat runs (C3; `k = 3` is for daily iteration only).
@@ -196,6 +196,6 @@ One place owns:
 | Resettable environment before any agent eval (H) | Otherwise non-reproducible |
 | Execution beats judging when execution is possible | A's ladder |
 | Within-noise delta is never an "improvement" | Noise floor |
-| Timeout = INCONCLUSIVE | Not a failure, not a pass |
+| Timeout = a failure, logged separately | "A slow correct query is a different bug from a wrong one" (`A:37`). INCONCLUSIVE is for a failed evaluation, not a slow artifact (`EL-014`) |
 | Missing tool → ask permission, don't skip silently | User stays in control |
 | Self-canary every session | The agent must detect its own drift |

@@ -41,7 +41,7 @@ Every milestone ends in a **gate**. Nothing downstream starts until the gate pas
 | T8 | Episodic store: SQLite schema + write/query | Situation decisions and reasoning persisted | 1d |
 | T9 | Classifier heuristics (Python only) | Correctly labels 10 sample files | 1.5d |
 | T10 | Oracle harvester: find existing tests, schemas, type hints | Returns HIGH-confidence oracles from a real repo | 1.5d |
-| T11 | Sandbox runner: subprocess + rlimits + timeout + tempdir | Runs a command safely; timeout → INCONCLUSIVE | 1.5d |
+| T11 | Sandbox runner: subprocess + rlimits + timeout + tempdir | Runs a command safely; timeout → failed, class `timeout` (EL-014) | 1.5d |
 | T12 | Execution grader: hidden-test isolation, partial credit, compile/logic split | Catches a deliberately broken function | 2d |
 | T13 | Deterministic grader: schema/regex/exact + cascade hook | Validates output shape; cascade stub in place | 1d |
 | T14 | LLM client (stdlib HTTP, retry, backoff) + router | One call works; router selects by job | 1d |
@@ -82,7 +82,7 @@ Every milestone ends in a **gate**. Nothing downstream starts until the gate pas
 | # | Task | Effort |
 |---|---|---|
 | T33 | Judge grader: single-criterion, named categories, reasoning-first | 2d |
-| T34 | Cross-family hard assertion in router | 0.5d |
+| T34 | Cross-family hard assertion in router — **done in M1** (EL-209, `evalloop/capability/router.py`) | 0.5d |
 | T35 | Position swap + flip-rate tracking | 1d |
 | T36 | Calibration set + Cohen's kappa + `kappa_manual ≥ 0.6` runtime gate | 2d |
 | T37 | Summarization situation (faithfulness + length companion) | 2d |

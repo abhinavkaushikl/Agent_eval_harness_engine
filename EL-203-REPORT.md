@@ -169,3 +169,76 @@ the analytic paired CI from finding 3 in §3.
 whose last digit changed in Python 3.12 (`…808` on 3.10 vs `…8077` on 3.12). It now
 uses `math.fsum` and `math.sqrt`, which are correctly rounded and so identical on
 every version.
+
+---
+
+## 10. Re-verification against the full EL-203 prompt — 2026-10-09
+
+I built the module from the session preamble alone, because no ticket block had been pasted.
+This pass checks it against the ticket's own prompt, line by line. It was not rebuilt.
+
+**Two gaps fixed.** Two citations named in the prompt had never been checked against the
+corpus:
+
+- **C:159** is the prompt's second source for the rule of three: "could still be up to 1%".
+  It is now in the citation table, and both rule-of-three tests assert its figures.
+- **B:203** is the prompt's source for "1,000–10,000" resamples. It is now in the citation
+  table, and the defaults test asserts that the 5,000 default lies inside that printed range.
+
+The stats suite now has 163 tests, up from 161. It passes on 3.12 and on 3.10.
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | Four modules, stdlib only | ✅ No NumPy |
+| 2 | One test per example, naming its line | ✅ Lines are written `C:31`, not `<file>:31`. `CLAUDE.md` §3 keeps corpus filenames in `tests/conftest.py` only, which maps each section letter to its file. That rule outranks the prompt's "file:line" |
+| 3 | Wilson as the default; Wald only for the 198/200 demonstration, citing C:35 | ✅ With one deviation: there is no `wald_interval`. The Wald half-width is B5's `margin_of_error`, which the corpus prescribes for reading other people's numbers (B:169). Its docstring cites C:35 to say it is not the interval for your own score. A second function would be a second, misusable spelling of the same formula |
+| 4 | The b + c ≥ 25 switch, with both branches proven | ✅ b=3, c=11 takes the exact branch: 0.057. b=8, c=21 takes the χ² branch: 0.03. A boundary test covers 24 versus 25 pairs. The χ² branch reproduces 0.03 **only with B:100's continuity correction**, which the prompt does not mention |
+| 5 | Every default cited, or required | ✅ 10,000 shuffles (C:209); 5,000 resamples (B:211, inside B:203's range); α 0.05 (C:19); confidence 0.95 (C:25); 25 discordant pairs (B:107). Seeds have no default |
+| 6 | Seeded, with the seed recorded | ✅ Re-verified today: the seeded results are byte-identical on 3.10 and 3.12 |
+| 7 | One rounding convention, in the package docstring | ✅ Round half-up to the decimal places the corpus printed |
+| 8 | Report every figure that does not reproduce | Below |
+
+**Figures that do not reproduce to the digit the corpus prints:**
+
+| Row | Corpus prints | The corpus's own formula gives |
+|---|---|---|
+| C:19 / C:65, unpaired | ≈ 920 | 924 |
+| C:65, paired | ≈ 375 | 373.96 |
+| C:84, paired | ≈ 1,960 | 1,957.6 |
+| B:257, cluster CI | ±5.1 | Cannot be recomputed: the corpus gives no data |
+
+- **The three sample sizes** are printed with "≈". Each is tested by round trip instead: the
+  corpus's own n, fed back through the inverse formula, recovers the effect the corpus states.
+- **The cluster CI** is checked only through the formula: the design-effect prediction of a
+  2.1× widening reproduces, but the bootstrap behind ±5.1 cannot be re-run.
+
+Every other figure reproduces exactly under the stated rounding.
+
+**Decisions made since the build:**
+
+- **EL-014** ruled that timeouts count as failures. That changes no statistics. The caller
+  computes a pass rate as `wilson_interval(passed, passed + failed)`: timeouts are counted,
+  inconclusive runs are not. That aggregation is EL-211's job.
+- **EL-015** ruled that corpus figures live on the technique's record. It forecloses "corpus
+  figures as module literals", and that **conflicts with five of this module's cited
+  defaults**:
+  - confidence 0.95 (C1);
+  - α 0.05 (C2, C5);
+  - 10,000 shuffles (C6);
+  - 5,000 resamples (B6);
+  - 25 discordant pairs (B3).
+
+  The other constants are unaffected. The formula constants — 16, 1.96, 0.84 and 3 — *are* the
+  corpus's printed formulas, not settings, so they stay. The bisection counts and convergence
+  epsilons are not corpus figures at all.
+
+  *Recommendation:* once EL-015's implementing story inventories those five records, add one
+  test per default asserting that the module's default equals the record's parameter. The
+  pattern already exists, as `test_the_planner_and_mcnemar_read_the_same_bound` does for B3. It
+  keeps this library free of registry I/O, and the two copies of each number cannot drift
+  apart. *The alternative* is to make the five arguments required and have every caller pass
+  the record's value. **This needs a ruling.**
+
+**Bookkeeping:** the E2 board still showed EL-203 and EL-202 as Ready, although both were done.
+Both rows are corrected. The stale status is the likely reason this ticket arrived a second
+time.

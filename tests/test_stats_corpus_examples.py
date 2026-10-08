@@ -77,10 +77,11 @@ from tests.stats_citations import CITES, citations_in, reads_as
 
 
 def test_every_default_is_the_corpus_figure() -> None:
-    """C:25, C:19, B:37, B:211, C:209, B:107 -- the package's defaults, against their lines."""
+    """C:25, C:19, B:37, B:203, B:211, C:209, B:107 -- the package's defaults, against their lines."""
     assert DEFAULT_CONFIDENCE == 0.95  # C:25, "A 95% CI ON EVERY SCORE"
     assert DEFAULT_ALPHA == 0.05  # C:19, "(alpha = 0.05, 80% power)"
     assert DEFAULT_RESAMPLES == 5_000  # B:211, "Use 5,000 resamples for reporting"
+    assert 1_000 <= DEFAULT_RESAMPLES <= 10_000  # B:203, "1,000-10,000 times"
     assert DEFAULT_SHUFFLES == 10_000  # C:209, "Use 10,000 shuffles."
     assert CHI_SQUARE_MIN_DISCORDANT == 25  # B:107, "b + c >= 25"
 
@@ -138,12 +139,14 @@ def test_wald_on_198_of_200_is_impossible_and_wilson_is_not() -> None:
 
 
 def test_rule_of_three_on_zero_in_300() -> None:
-    """C:20, C:138 -- "0/300 -> <= 1.0% at 95%"."""
-    assert reads_as(rule_of_three_upper_bound(300) * 100, "1.0")
+    """C:20, C:132, C:138, C:159 -- "0/300 -> <= 1.0% at 95%"; C:159 says "could still be up to 1%"."""
+    bound = rule_of_three_upper_bound(300) * 100
+    assert reads_as(bound, "1.0")  # C:138
+    assert reads_as(bound, "1")  # C:159
 
 
 def test_rule_of_three_sizes_a_safety_eval() -> None:
-    """C:139 -- "To claim <= 0.1% you need 3,000 clean items, and to claim <= 0.01% you need 30,000"."""
+    """C:139, C:159 -- "To claim <= 0.1% you need 3,000 clean items, and to claim <= 0.01% you need 30,000"."""
     assert reads_as(rule_of_three_items_needed(0.001), "3000")
     assert reads_as(rule_of_three_items_needed(0.0001), "30000")
 
