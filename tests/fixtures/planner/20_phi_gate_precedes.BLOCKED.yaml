@@ -1,0 +1,72 @@
+# Fixture 20 - BLOCKED, the record does not exist. Not loaded by the suite.
+#
+# THE SPECIFICATION, from TASKS.md group 6:
+#   20. phi_present + structured_extraction -> PHI GATE PRECEDES EVERYTHING
+#       (and this stage's ticket: "assert position, not just presence")
+#
+# THERE IS NO PHI RECORD. Checked three ways:
+#   1. No record triggers on `phi_present`. The member is in the Situation
+#      enum's `data` family (CLAUDE.md section 6) and `match()` returns nothing
+#      for it.
+#   2. The string "PHI" does not appear anywhere in `knowledge rules/` - not in
+#      the master lookup, not in any of the ten deep dives, not in 00-INDEX.md.
+#   3. The nearest thing in the registry is a required_SIGNAL on
+#      I8_eval_set_from_logs, "PII is scrubbed before an item enters the set"
+#      (I-production.md:277). That is a precondition on building an eval set,
+#      not a gate, and it is PII rather than PHI.
+#
+# So the plan for `phi_present + structured_extraction` is just fixture 6's
+# plan: A5_schema_field_scoring and C1_wilson_ci. There is nothing to assert a
+# position for, and inventing a record to be the gate is exactly what
+# CLAUDE.md section 3 forbids.
+#
+# WHY THIS MATTERS MORE THAN ONE FIXTURE. `phi_present` is a Situation member
+# with no record, and it is one of SIX: classification, data_pipeline,
+# model_training, contamination_risk, distribution_mismatch, phi_present. A
+# session classified into any of them gets an empty plan with no explanation.
+# S3 justified every member it added; these six were added and never claimed.
+# See S19-REPORT.md section 3 for the sweep.
+#
+# A SEPARATE AND SHARPER CASE in that list: `contamination_risk` is dead while
+# E7_contamination_check EXISTS and triggers on `benchmark_too_good`. That one
+# looks like a plain authoring miss rather than a corpus gap, and it is the
+# cheapest of the six to fix.
+#
+# THE OPTIONS, for the ruling. Nothing below is implemented.
+#
+#   A. Author a PHI/PII gate record, and accept that it has no corpus row.
+#      It would be a `constraint` with gates: absolute, triggering on
+#      phi_present, forbidding any technique that sends the artifact to an
+#      external API before redaction. ARCHITECTURE.md section 4.3 ("Redaction
+#      is a boundary, not a filter") is the design authority and is NOT a
+#      source for a methodology record - it is our own document. So this record
+#      would be the first in the registry with no corpus provenance, and its
+#      source_ref would fail S17's resolution test. That is a real decision
+#      about what the registry is, not a small addition.
+#
+#   B. Drop `phi_present` from the Situation enum.
+#      Honest, cheap, and it loses the ability to even classify the situation -
+#      which matters because the sensor layer (M2) is expected to detect PHI in
+#      a repo. Dropping the member means the detection has nowhere to report.
+#
+#   C. Keep the member, drop the fixture, and record the gap.
+#      The member stays as a classification target with no technique attached,
+#      and the gate lands in a later milestone where redaction is a capability
+#      question rather than a methodology one. This is the status quo made
+#      explicit, and it is the recommendation if A's provenance problem is not
+#      something you want to open now.
+#
+#   D. Treat PHI as a capability-broker concern, not a registry one.
+#      Decision EL-002 already puts transports and grants in the broker rather
+#      than the vocabulary. Redaction-before-egress is arguably the same kind
+#      of thing: a precondition the broker enforces on every tool call, not a
+#      technique the planner selects. If so, `phi_present` belongs to the
+#      broker's policy and not to Situation at all, and option B follows.
+#
+# Of the four, D is the one that changes the architecture rather than patching
+# a hole, and it deserves a look before A.
+name: phi_present_gate_precedes_everything
+given:
+  situations: [phi_present, structured_extraction]
+  available_tools: []
+  evidence: {samples: 1}

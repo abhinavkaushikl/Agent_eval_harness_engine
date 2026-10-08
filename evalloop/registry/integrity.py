@@ -25,31 +25,52 @@ placement, then its edges:
 2. **section outside A-J** -- there are ten sections and no eleventh.
 3. **id prefix disagreeing with ``section``** -- ``A1_...`` declaring section
    ``B``. Skipped when rule 2 already fired, so one defect is reported once.
-4. **grader without a ``ladder_priority``, once any grader has one** -- an
-   unrunged grader cannot be ordered against the others at step 7. The rule is
-   *all-or-nothing*: it stays silent while no grader in the registry carries a
-   rung, and fires for every unrunged grader as soon as one does. A
-   half-assigned ladder is the defect; an unassigned one is a stage that has
-   not happened yet.
+4. **section-A grader without a ``ladder_priority``, once any section-A
+   grader has one** -- an unrunged rung cannot be ordered against the others at
+   step 7. The rule is *all-or-nothing within section A*: it stays silent while
+   no section-A grader carries a rung, and fires for every unrunged one as soon
+   as one does. A half-assigned ladder is the defect; an unassigned one is a
+   stage that has not happened yet, and a grader outside section A is not on
+   this ladder at all.
 5. **non-grader carrying a ``ladder_priority``**.
 6. **self-reference** -- a record naming its own id in ``companion_checks``,
    ``unlocks`` or ``conflicts_with``.
 7. **unknown reference** -- any of those three naming an id no record has.
 
-Why rule 4 is all-or-nothing (EL-110)
--------------------------------------
+Why rule 4 is all-or-nothing, and why it is scoped to section A
+---------------------------------------------------------------
 It was first written as "every grader has a rung", and the first 20 real
 records contradicted it twice. EL-110 authors sections A-C with
 ``ladder_priority: null`` throughout, because the ladder is EL-113's stage, and
 it also requires ``check_integrity()`` to be empty -- which the strict form
-made impossible. Worse, two records are *permanently* unrunged graders:
-``B2_pairwise_preference`` renders a verdict but sits nowhere on section A's
-ladder, and ``A7_tiered_online_scoring`` wraps the ladder, with its rung an
-open question for S6 per ``CLAUDE.md`` section 6. And section 6 only ever
-states the one-way rule -- ``ladder_priority`` is "None unless type is grader"
--- which the schema already enforces; the converse was this module's own
-over-reach. All-or-nothing keeps the gate that matters (EL-113 assigning five
-rungs out of six) without asserting something the corpus denies.
+made impossible. And ``CLAUDE.md`` section 6 only ever states the one-way rule
+-- ``ladder_priority`` is "None unless type is grader" -- which the schema
+already enforces; the converse was this module's own over-reach. Hence
+all-or-nothing.
+
+That was still too broad, and **EL-113 is where it bit.** All-or-nothing over
+*every* grader survives only while no grader has a rung. The moment EL-113
+assigns rung 1 to ``A1_execution_based``, the rule fires on
+``B2_pairwise_preference`` -- a grader in section B that the corpus never
+places on the ladder. EL-113 then had three ways out and two of them are
+forbidden: invent a rung for B2 (a number no source states, which
+``CLAUDE.md`` section 3 forbids) or retype B2 to silence the checker (the
+workaround section 7.5 forbids). So the rule was narrowed instead.
+
+**The ladder belongs to section A.** ``A-choosing-how-to-grade.md:11-18`` is
+the only place the corpus draws it, and ``decisions/EL-004`` fixes its depth at
+"five rungs plus a wrapper". A grader in another section has no place on it, so
+rule 4 asks for a rung only from section-A graders. Two records that the
+EL-110 docstring called "permanently unrunged graders" are now handled by
+different means and neither needs an exemption: ``A7_tiered_online_scoring``
+is typed ``procedure``, so no grader rule sees it at all, and
+``B2_pairwise_preference`` is outside section A.
+
+What this rule deliberately does **not** say: that a grader outside section A
+may not carry a rung. ``CLAUDE.md`` section 6 states no such prohibition, and
+inventing one here would repeat the over-reach the paragraph above describes.
+If a later stage puts a rung on a non-A grader, that is a decision to make in
+the open, not a defect to catch in a loop.
 
 Rule 5 is already unreachable
 -----------------------------
@@ -67,11 +88,20 @@ Named here because they are real and unguarded, not added: a ``conflicts_with``
 edge that is not reciprocated (step 5 is directional, so which record the
 planner reads decides the outcome); an id appearing in both
 ``companion_checks`` and ``conflicts_with`` for the same record, where step 5
-removes what step 6 demands; cycles in ``unlocks``; two graders in one section
-sharing a ``ladder_priority``, which makes step 7's ordering a tie broken by id
-rather than by the methodology; and a companion that can never be ready, so a
-mandated companion silently never appears. Each needs a decision about intent,
-not a loop, and none is in this ticket's seven.
+removes what step 6 demands; cycles in ``unlocks``; and a companion that can
+never be ready, so a mandated companion silently never appears. Each needs a
+decision about intent, not a loop, and none is in this ticket's seven.
+
+Two graders sharing a rung was on that list as a hypothetical. **As of EL-113
+it is real and correct:** ``A3_normalised_exact_match`` and
+``A5_schema_field_scoring`` both carry rung 3, because
+``A-choosing-how-to-grade.md:13-14`` gives them the identical
+"deterministic, zero cost" annotation and the section's decision flow reaches
+them from mutually exclusive branches, so the source never has to order them. A
+rule forbidding shared rungs would therefore reject the corpus. What it costs
+is real but small: step 7 breaks the A3/A5 tie by id rather than by the
+methodology, and their triggers are disjoint (``qa_answer`` versus
+``structured_extraction``), so one situation never selects both.
 
 Determinism (``CLAUDE.md`` section 7.8)
 ---------------------------------------
@@ -92,7 +122,7 @@ from types import MappingProxyType
 
 from evalloop.registry.schema import RecordType, TechniqueRecord
 
-__all__ = ["CROSS_REFERENCE_FIELDS", "SECTIONS", "check_integrity"]
+__all__ = ["CROSS_REFERENCE_FIELDS", "LADDER_SECTION", "SECTIONS", "check_integrity"]
 
 #: The ten section letters, as a tuple. Deliberately not the string
 #: ``"ABCDEFGHIJ"``: ``"" in "ABCDEFGHIJ"`` and ``"AB" in "ABCDEFGHIJ"`` are
@@ -137,7 +167,7 @@ class _Rule(IntEnum):
     duplicate_id = 1
     section_range = 2
     section_prefix = 3
-    grader_without_priority = 4
+    ladder_grader_without_priority = 4
     non_grader_with_priority = 5
     self_reference = 6
     unknown_reference = 7
@@ -164,7 +194,7 @@ def check_integrity(records: Iterable[TechniqueRecord]) -> list[str]:
     ladder_started = any(
         record.ladder_priority is not None
         for record in all_records
-        if record.type is RecordType.grader
+        if _is_ladder_grader(record)
     )
 
     findings: list[_Finding] = []
@@ -226,23 +256,34 @@ def _check_section(record: TechniqueRecord, findings: list[_Finding]) -> None:
         )
 
 
+#: The one section that has a grading ladder. ``A-choosing-how-to-grade.md``
+#: 11-18 is the only place the corpus draws one, and EL-004 fixes its depth at
+#: five rungs plus a wrapper, so rule 4 asks for a rung only from here.
+LADDER_SECTION = "A"
+
+
+def _is_ladder_grader(record: TechniqueRecord) -> bool:
+    """A grader that section A's ladder actually ranks."""
+    return record.type is RecordType.grader and record.section == LADDER_SECTION
+
+
 def _check_ladder_priority(
     record: TechniqueRecord, ladder_started: bool, findings: list[_Finding]
 ) -> None:
-    """Rules 4 and 5. Rule 4 is all-or-nothing -- see the module docstring."""
-    is_grader = record.type is RecordType.grader
-    if is_grader and record.ladder_priority is None and ladder_started:
+    """Rules 4 and 5. Rule 4 is all-or-nothing within section A -- see the docstring."""
+    if _is_ladder_grader(record) and record.ladder_priority is None and ladder_started:
         findings.append(
             _Finding(
                 record.id,
-                _Rule.grader_without_priority,
-                "ladder_priority: is null but other graders in the registry carry a "
-                "rung, so this grader cannot be ordered against them. Set it to "
-                "1 execution, 2 end-state, 3 deterministic, 4 judge or 5 human -- or, "
-                "if it does not belong on section A's ladder at all, retype it",
+                _Rule.ladder_grader_without_priority,
+                f"ladder_priority: is null but other section-{LADDER_SECTION} graders "
+                "carry a rung, so this grader cannot be ordered against them on the "
+                "grading ladder. Set it to 1 execution, 2 end-state, 3 deterministic, "
+                "4 judge or 5 human -- or, if it renders no verdict of its own, retype "
+                "it",
             )
         )
-    elif not is_grader and record.ladder_priority is not None:
+    elif record.type is not RecordType.grader and record.ladder_priority is not None:
         findings.append(
             _Finding(
                 record.id,

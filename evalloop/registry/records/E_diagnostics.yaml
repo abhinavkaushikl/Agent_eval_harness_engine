@@ -1,10 +1,14 @@
 # Section E - WHEN A NUMBER LOOKS WRONG. Eight records, one per master-lookup
 # row, in the deep dive's numbering (E1-E8, from '^# E[0-9]+ ' headers).
 #
+# S15 (EL-115) enriched this file from E-when-a-number-looks-wrong.md.
+# Citations in extraction_notes are `E:<line>` against that file.
+# anti_pattern, worked_example and domain_scenario are untouched - they are the
+# master lookup's columns and tests/test_records.py diffs them against it.
+#
 # All eight are symptom-triggered and all eight are typed `diagnostic`: they
 # explain a surprising number rather than producing or gating one. The eight
-# Situation cells map ONE-TO-ONE onto the measurement family, which is what
-# that family exists for:
+# Situation cells map ONE-TO-ONE onto the measurement family:
 #   E1 score_jumped              E5 all_candidates_high
 #   E2 score_up_business_flat    E6 all_candidates_zero
 #   E3 length_increased          E7 benchmark_too_good
@@ -12,22 +16,38 @@
 # The family's two remaining members belong to section C: many_slices_checked
 # (C5) and score_near_0_or_100 (C4). Nothing was left over either way.
 #
+# EVERY RECORD'S FIRST ACTION IS CAPTURED IN extraction_notes, VERBATIM,
+# BECAUSE THE SCHEMA HAS NO FIELD FOR IT. The deep dive gives each record a
+# FIRST CHECK in its symptom box (E:11-18) and a step 1 under "How to do it
+# properly". That is the single most actionable thing section E contains and
+# there is nowhere to put it: `name` carries the technique, `rule_of_thumb`
+# carries a stated formula, and neither is "do this first". Raised as S15
+# finding F6 with a `first_action` proposal; nothing was widened here.
+#
+# HISTORY REQUIREMENTS SPLIT TWO WAYS, and the split is the useful finding.
+# Where the history is REPEAT EVAL RUNS it is evidence, so it goes in
+# `requires` and the planner can mark the record pending on a first run:
+# E1 {runs: 2}, E4 {runs: 3}, E7 {runs: 2}, E8 {benchmarks: 3}. Where the
+# history is PRODUCTION DATA it is a capability, so it stays in
+# `required_tools` as production_logs: E2, E5. Two records need no history at
+# all and that is deliberate, not missing: E3 diagnoses a single comparison,
+# and E6 must run BEFORE any model does (E:210).
+#
 # gates is `false` for all eight: a diagnostic is reported, and the decision it
-# informs is gated by the record that produced the number. See
-# A_grading.yaml's header for how gates and the cost fields were derived.
+# informs is gated by the record that produced the number.
 
 E1_per_item_diff:
   section: E
   name: Per-item diff, then read the flipped items
   type: diagnostic
   triggers_on_situation: [score_jumped]
-  required_signals: ["per-item verdicts exist for both runs", "the two runs are over the same items"]
+  required_signals: ["per-item verdicts exist for both runs", "the two runs are over the same items", "every flip can be tagged as real improvement, formatting, grader change, data change or noise", "grader version, regex, normaliser, dataset hash and provider model alias are recorded for both runs"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {runs: 2}
   produces: [flipped_item_count, flipped_items]
   gates: false
-  companion_checks: []
+  companion_checks: [E4_aa_baseline]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -41,23 +61,40 @@ E1_per_item_diff:
   domain_scenario: >-
     **E-commerce**: product Q&A bot "improved" overnight after a prompt tweak
   rule_of_thumb: >-
-    list every item whose verdict changed between runs and read them by hand
-  source_ref: evals-situation-to-technique.md § E
-  extraction_notes: null
+    If more than half the flipped items flipped for formatting reasons, the
+    grader changed, not the model
+  source_ref: E-when-a-number-looks-wrong.md § E1
+  extraction_notes: >-
+    FIRST ACTION (E:11, the symptom box): "Score jumped suddenly -> E1
+    per-item diff, read the flips"; step 1 at E:37 is "Diff at item level:
+    make two lists, newly passing and newly failing." Captured here because
+    no field holds it - see this file's header and S15 finding F6. requires
+    {runs: 2} is the history bound: E:31 says the diff is over "the two
+    runs" and E:37 makes two lists from them, so on a first run the planner
+    marks this pending rather than firing it on nothing. rule_of_thumb is
+    E:24 verbatim, one of section E's three stated rules of thumb. E4 is a
+    companion because E:39's tag list includes "noise (the item also flips
+    between A/A runs)" - you cannot tag a flip as noise without E4's band -
+    and E4 names this record back at E:143, "If a move is outside the band,
+    diff the provenance first, then do the per-item diff (E1)", which is the
+    unlocks edge written on E4. ONE NUMBER HAS NO FIELD: E:38 "Read every
+    flip if there are fewer than 100, or a random 100 otherwise" is a
+    sampling rule on the diagnostic's own workload, neither readiness nor a
+    trust bar
 
 E2_metric_outcome_check:
   section: E
   name: Compare eval-set distribution to production + check metric–outcome correlation
   type: diagnostic
   triggers_on_situation: [score_up_business_flat]
-  required_signals: ["the eval set and production traffic can both be sliced the same way", "a business KPI is recorded alongside the eval score"]
+  required_signals: ["the eval set and production traffic can both be sliced the same way", "a business KPI is recorded alongside the eval score", "the eval set's slice mix and 30 days of traffic can be tabulated side by side", "per-slice scores can be re-weighted by traffic share"]
   required_tools: [production_logs]
   ladder_priority: null
-  requires: {}
+  requires: {release_history_available: true}
   produces: [slice_mix_divergence, metric_outcome_correlation]
   gates: false
   companion_checks: []
-  unlocks: []
+  unlocks: [I8_eval_set_from_logs]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: medium
@@ -69,20 +106,35 @@ E2_metric_outcome_check:
   domain_scenario: >-
     **Telecom**: support bot for prepaid recharge issues
   rule_of_thumb: >-
-    compare slice mix (language, intent) between eval and traffic, and regress
-    the business KPI on the eval score
-  source_ref: evals-situation-to-technique.md § E
+    Plot eval score against the KPI (CSAT, containment, escalation) across
+    your last 6-10 releases. If the correlation r is below about 0.3, the
+    eval isn't predicting outcomes
+  source_ref: E-when-a-number-looks-wrong.md § E2
   extraction_notes: >-
-    The row prescribes two checks (distribution comparison and metric-outcome
-    correlation) and is kept as one record because the lookup commits to one
-    row; splitting it would be the merge rule run backwards
+    The row prescribes two checks (distribution comparison and
+    metric-outcome correlation) and is kept as one record because the lookup
+    commits to one row. FIRST ACTION (E:12): "Score up, users didn't notice
+    -> E2 eval-vs-traffic mix, metric<->KPI link"; step 1 at E:72 is
+    "Tabulate the slice mix of the eval set and of 30 days of traffic side
+    by side." requires {release_history_available: true} IS AN
+    INTERPRETATION and is flagged: E:74 needs "your last 6-10 releases" of
+    score-and-KPI pairs, which is a range, so the count is not copied - but
+    the record is meaningless without release history, so the precondition
+    is carried as a boolean. This is the same prose-to-boolean move S13
+    flagged for B5 and B7. Note the split this record straddles: its traffic
+    half is a CAPABILITY (production_logs) and its release half is EVIDENCE
+    (the boolean). unlocks I8 is E:75 verbatim, "Refresh the eval set from
+    recent logs every quarter (see Section I8)" - the remedy this diagnostic
+    leads to. ONE NUMBER HAS NO FIELD: E:74's "r below about 0.3" is a trust
+    bar on metric_outcome_correlation, which this record produces - S13
+    finding F2, verbatim in rule_of_thumb
 
 E3_length_controlled_win_rate:
   section: E
   name: Length-controlled win rate
   type: diagnostic
   triggers_on_situation: [length_increased]
-  required_signals: ["output length is recorded per item", "pairwise preferences are available"]
+  required_signals: ["output length is recorded per item", "pairwise preferences are available", "the token count of every output is logged in every eval run", "pairs within +-10% length can be formed by truncation or selection for a spot-check"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -103,28 +155,44 @@ E3_length_controlled_win_rate:
     **Insurance**: policy-exclusion explainer. The new prompt adds paragraphs,
     not accuracy
   rule_of_thumb: >-
-    regress the preference on the length difference (or length-match pairs) and
-    report the length-adjusted win rate
-  source_ref: evals-situation-to-technique.md § E
+    If the mean length changed by more than about 20%, compute the
+    length-controlled win rate before reporting
+  source_ref: E-when-a-number-looks-wrong.md § E3
   extraction_notes: >-
-    AGENT.md section 5 makes this a non-negotiable companion - "any judge score
-    is reported with output length" - so A4 and B2 should name E3 in
-    companion_checks. Cross-references are EL-115's, so the edge is not written
-    here
+    THE LENGTH-BIAS COMPANION EDGE IS LIVE. AGENT.md section 5 makes this a
+    non-negotiable - "Any judge score is reported with output length" - and
+    the edge is written on the judge records, not here, because
+    companion_checks is directional and the judge is what pulls E3 in. Three
+    records now name E3: A4_judge_binary_criteria and B2_pairwise_preference
+    (both added in S13, with B2's traceable to its own source line, B:75
+    "Check whether length explains the win (see Section E3) before
+    announcing it"), and F4_position_swap_consistency, added in S15 because
+    it produces a win rate from a judge and AGENT.md section 5 admits no
+    exception. F4's edge rests on section 5 rather than on a line in F,
+    which the ticket permits for finding a missed edge but not for a number.
+    FIRST ACTION (E:13): "Score up, answers got longer -> E3
+    length-controlled win rate"; step 1 at E:106 is "Log the token count of
+    every output in every eval run." requires IS EMPTY AND THAT IS CORRECT:
+    E3 is one of the two E records needing no history, because it diagnoses
+    a single A-versus-B comparison rather than a change over time. TWO
+    NUMBERS HAVE NO FIELD: E:107's "more than about 20%" is the trigger for
+    computing the controlled rate at all (now verbatim in rule_of_thumb),
+    and E:108's "re-judge 50-100 of them" is a range, so no spot-check count
+    is recorded
 
 E4_aa_baseline:
   section: E
   name: "A/A baseline: run the identical config 3–5× to get the noise band"
   type: diagnostic
   triggers_on_situation: [no_change_score_moved]
-  required_signals: ["the identical configuration can be re-run unchanged", "the provider model version and judge temperature are observable"]
+  required_signals: ["the identical configuration can be re-run unchanged", "the provider model version and judge temperature are observable", "provenance is logged for every run: model version string, judge version, temperature, dataset hash, harness commit", "the band is stored with the eval and re-measured whenever the grader or the provider changes"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {runs: 3}
   produces: [noise_band, run_to_run_sd]
   gates: false
   companion_checks: []
-  unlocks: []
+  unlocks: [E1_per_item_diff]
   conflicts_with: []
   analysis_cost: low
   capture_cost: high
@@ -136,28 +204,45 @@ E4_aa_baseline:
   domain_scenario: >-
     **Legal**: clause-classification regression suite on NDAs
   rule_of_thumb: >-
-    measure run-to-run SD with no change, and also check the provider model
-    version and judge temperature
-  source_ref: evals-situation-to-technique.md § E
+    A move inside +-2 SD of identical re-runs is noise. Measure that band
+    before you investigate anything. Run A/A 3-5 times and compute the SD;
+    the noise band is +-2 SD
+  source_ref: E-when-a-number-looks-wrong.md § E4
   extraction_notes: >-
-    The Use cell states "3–5×", a RANGE, so requires stays empty: picking 3 or
-    5 out of a stated range is an invented number under CLAUDE.md section 3.
-    Contrast C3, whose "k ≥ 5" is a single bound and IS recorded. Reported for
-    EL-115 to settle against the deep dive
+    FIRST ACTION (E:14): "Nothing changed, score moved -> E4 A/A noise
+    band"; step 1 at E:140 is "Run A/A 3-5 times and compute the SD. The
+    noise band is +-2 SD." requires {runs: 3} IS AN INTERPRETATION and
+    overturns S10's call on this record, which left it empty because the
+    lookup's "3-5x" is a range. It is the LOWER END of that range read as
+    the floor, and the deep dive does not say "at least". Two things make it
+    defensible rather than a pick: an SD cannot be computed from one run at
+    all, so an empty requires lets the planner fire the noise-floor record
+    on a single run, which is the exact dishonesty this project exists to
+    prevent; and C:103 states 3 independently as a hard floor for the
+    lighter use ("k = 3 for daily iteration"), which is what E4 is -
+    measuring a band, not deciding. FLAGGED FOR HUMAN REVIEW; overruling it
+    restores requires {} and the n=1 problem with it. Contrast C3, whose "k
+    >= 5" is a single bound and needed no interpretation. unlocks E1 is
+    E:143 verbatim, "If a move is outside the band, diff the provenance
+    first, then do the per-item diff (E1)". gates stays `false` although
+    E:306 says "move inside band? -> STOP. It's noise": what E4 stops is an
+    investigation, not a release, and AGENT.md section 5's "Within-noise
+    delta is never an improvement" is enforced by whoever reads the band,
+    not by this record blocking
 
 E5_harder_set:
   section: E
   name: Build a harder set (hard-negative mining from production failures + adversarial items)
   type: diagnostic
   triggers_on_situation: [all_candidates_high]
-  required_signals: ["every candidate scores near the top of the range", "production failures are retrievable to mine from"]
+  required_signals: ["every candidate scores near the top of the range", "production failures are retrievable to mine from: escalations, thumbs-down, human corrections, re-asks", "perturbations can be authored: negations, multi-part questions, regional spellings, amounts in lakh/crore, conflicting information", "the easy set is kept as a regression floor while the hard set becomes the comparison set", "items every model passes are retired each quarter"]
   required_tools: [production_logs]
   ladder_priority: null
   requires: {}
   produces: [hard_set_score_spread]
   gates: false
   companion_checks: []
-  unlocks: []
+  unlocks: [I8_eval_set_from_logs]
   conflicts_with: []
   analysis_cost: high
   capture_cost: high
@@ -170,23 +255,33 @@ E5_harder_set:
     **Fintech**: GST query bot. Everyone aces "what is GST?" but fails on RCM
     and ITC reversal questions
   rule_of_thumb: >-
-    collect the items that current models fail on in production, and add
-    perturbed and edge-case variants
-  source_ref: evals-situation-to-technique.md § E
+    Target 40-70% accuracy for the best current model. That's hard enough to
+    spread candidates apart without being impossible
+  source_ref: E-when-a-number-looks-wrong.md § E5
   extraction_notes: >-
     The one type call in E that is genuinely arguable. The Situation is the
     ceiling symptom, which CLAUDE.md section 6 lists under `diagnostic`, but
-    the Use cell prescribes building an eval set, which section 6 lists under
-    `procedure`. Typed `diagnostic` to match the section and the ticket; the
-    remedy it prescribes is section I's I8 (eval set from logs). Flagged for
-    EL-115
+    the Use cell prescribes building an eval set, which section 6 lists
+    under `procedure`. Typed `diagnostic` to match the section; the remedy
+    it prescribes is I8, now written as an unlocks edge rather than left in
+    prose (E:174's mining of production failures is exactly I8's input).
+    FIRST ACTION (E:15): "Everyone scores 90%+ -> E5 harder set from real
+    failures"; step 1 at E:174 is "Mine production failures: escalations,
+    thumbs-down, human corrections, re-asks." requires is EMPTY and that is
+    the capability side of this file's history split: the history E5 needs
+    is production data, which required_tools already demands as
+    production_logs, not accumulated eval evidence. No count is stated for
+    it either. E:176's "40-70%" is a TARGET for the set being built, not a
+    readiness bound, so it is in rule_of_thumb. E:171's reasoning - five
+    models inside one +-2.5-point margin - is B5's margin computation, but
+    the source does not name B5, so no edge is written
 
 E6_oracle_run:
   section: E
   name: "Oracle run: execute a known-correct solution through the harness first"
   type: diagnostic
   triggers_on_situation: [all_candidates_zero]
-  required_signals: ["a scripted known-correct solution can be written", "the oracle can be fed through the same pipeline as the system"]
+  required_signals: ["a scripted known-correct solution can be written: a scripted perfect agent, the reference answers or a gold trajectory", "the oracle can be fed through the same pipeline as the system", "harness logs are readable for timeouts, schema mismatches, missing environment state and grader parse errors", "the oracle is kept in CI so harness changes cannot silently break the eval"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -206,23 +301,32 @@ E6_oracle_run:
   domain_scenario: >-
     **Logistics**: agent that books shipments on a carrier portal sandbox
   rule_of_thumb: >-
-    feed a scripted perfect agent or answer through the same pipeline. If it
-    fails, the harness is broken
-  source_ref: evals-situation-to-technique.md § E
+    Run the oracle before running any model. It should score 100%, or close
+    to it with known exceptions; if it does not, the harness is broken
+  source_ref: E-when-a-number-looks-wrong.md § E6
   extraction_notes: >-
     This is the infra-versus-capability distinction section H names as H-row
-    content; E6 is its diagnostic form for a zero score. No cross-reference
-    written, per the stage's rule
+    content; E6 is its diagnostic form for a zero score. FIRST ACTION
+    (E:16): "Everything scores 0% -> E6 oracle run through the harness";
+    step 1 at E:209 is "Build an oracle for every new eval: a script that
+    performs the correct actions or returns the gold answer." requires IS
+    EMPTY AND THAT IS A POSITIVE STATEMENT, not an omission: E:210 says "Run
+    it before running any model", so E6 is the one diagnostic in the section
+    that MUST fire at n = 1. Any readiness bound here would be wrong.
+    required_tools is also empty, which is a weaker call: the two scenarios
+    are agent sandboxes and would need `sandbox`, but the "returns the gold
+    answer" form of an oracle needs nothing, and the Tool enum has no way to
+    say "whatever the system under test needs". Noted rather than resolved
 
 E7_contamination_check:
   section: E
   name: "Contamination check: paraphrase or perturb test items and compare"
   type: diagnostic
   triggers_on_situation: [benchmark_too_good]
-  required_signals: ["the benchmark items can be rewritten without changing the answer", "the original items are available for n-gram overlap"]
+  required_signals: ["the benchmark items can be rewritten without changing the answer", "the original items are available for n-gram overlap", "a human can verify that each paraphrase preserves the answer", "for MCQs the option order is shuffled as well", "for your own sets a canary string is embedded and the set is never published"]
   required_tools: [llm_api]
   ladder_priority: null
-  requires: {}
+  requires: {runs: 2}
   produces: [paraphrase_score_drop, ngram_overlap]
   gates: false
   companion_checks: []
@@ -240,27 +344,36 @@ E7_contamination_check:
     **Healthcare**: a vendor model scores 88% on a NEET-PG-style medical MCQ
     set
   rule_of_thumb: >-
-    rewrite the items (same answer, new surface form) plus n-gram overlap and
-    canary-string checks
-  source_ref: evals-situation-to-technique.md § E
+    A paraphrase drop of more than 5 points means suspect memorisation. More
+    than 10 points is near-certain
+  source_ref: E-when-a-number-looks-wrong.md § E7
   extraction_notes: >-
     The Situation cell is benchmark_too_good; the data family's
     contamination_risk is the a-priori form of the same worry and is NOT
-    triggered here, because this row fires on an observed score. Flagged for
-    EL-115
+    triggered here, because this row fires on an observed score. FIRST
+    ACTION (E:17): "Public benchmark looks too good -> E7 paraphrase /
+    contamination check"; step 1 at E:243 is "Paraphrase 200-300 items,
+    keeping the answers identical, and have a human verify equivalence."
+    requires {runs: 2} is the history bound in its two-variant form: E:245
+    says "Compare scores", which needs the original set scored AND the
+    paraphrased set scored, so a single run cannot produce the drop this
+    record is named for. rule_of_thumb is E:23 and E:245 verbatim, including
+    the second band. TWO RANGES LEFT OUT: E:243's 200-300 paraphrased items,
+    and the 13-gram check at E:246 is a fixed n that belongs to the method
+    rather than to readiness, so it is in required_signals as prose
 
 E8_multi_benchmark_check:
   section: E
   name: Check on 3+ independent benchmarks + your own internal set
   type: diagnostic
   triggers_on_situation: [single_benchmark_dominance]
-  required_signals: ["three or more independent benchmarks cover the capability", "an internal set representative of your traffic exists"]
+  required_signals: ["three or more independent benchmarks cover the capability", "an internal set representative of your traffic exists", "ranks rather than scores are compared across the benchmarks", "the internal set is weighted highest, because it is the only one drawn from your data"]
   required_tools: []
   ladder_priority: null
   requires: {benchmarks: 3}
   produces: [rank_consistency]
   gates: false
-  companion_checks: []
+  companion_checks: [J2_full_domain_eval]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -275,9 +388,18 @@ E8_multi_benchmark_check:
     **E-commerce**: choosing a model for catalogue attribute extraction
     (fabric, fit, sleeve type)
   rule_of_thumb: >-
-    look at rank consistency across evaluations
-  source_ref: evals-situation-to-technique.md § E
+    Look at the ranks, not the scores. A model ranked 1st on one benchmark
+    and 4th everywhere else is a specialist, not a leader
+  source_ref: E-when-a-number-looks-wrong.md § E8
   extraction_notes: >-
     "3+" in the Use cell is a single lower bound, so it IS recorded as
-    {benchmarks: 3}, the same rule that recorded C3's "k ≥ 5" and left E4's
-    "3–5×" range empty
+    {benchmarks: 3}, and the deep dive confirms it verbatim at E:278,
+    "Collect ranks on 3+ benchmarks relevant to your task type". FIRST
+    ACTION (E:18): "One model wins one benchmark only -> E8 3+ benchmarks +
+    your own set"; step 1 is E:278 itself. J2 is a companion from E:279,
+    "Add your own 200-300 item internal set (Section J)" - the pointer names
+    the section, not the record, and J2 is the own-data eval it must mean;
+    note that J2's own count is 300-500, so the two rows state different
+    sizes for the same set, which is the corpus disagreeing with itself and
+    is raised in the report rather than reconciled. E:279's 200-300 is a
+    range in any case and is not recorded

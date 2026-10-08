@@ -1,10 +1,49 @@
 # Section H - AGENTS. Eight records, one per master-lookup row, in the deep
 # dive's numbering (H1-H8, from '^# H[0-9]+ ' headers).
 #
+# S16 (EL-116) enriched this file from H-agents.md. Citations in
+# extraction_notes are `H:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched - they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
+#
 # H1 is the PRECONDITION for the other seven, and is typed `procedure`, not a
 # metric, per the ticket. `constraint` is arguable - the Why cell is a
 # prohibition in substance ("live systems... runs corrupt each other") - and
 # that reading is recorded in its extraction_notes rather than chosen.
+#
+# THE PRECONDITION IS NOW DATA. H:291-292 is the top gate of the section's own
+# decision flow - "Is the environment sandboxed and reset per run? (H1) / NO ->
+# build it first" - and AGENT.md section 5 states it as a non-negotiable,
+# "Resettable environment before any agent eval". So every one of H2-H8
+# carries `environment_resets_per_run: true` in requires, and H1 unlocks all
+# seven. H1 itself carries NO gate, and must not: a record requiring the thing
+# it establishes can never become ready, and the whole section would deadlock
+# behind it. Nothing in the schema or in check_integrity() catches that, so it
+# is a hand rule - S16-REPORT.md finding F7.
+#
+# TWO KINDS OF REQUIREMENT, which is the whole reason EL-121 must treat them
+# distinctly:
+#   boolean  environment_resets_per_run   H2-H8   (H:291)
+#            requires_pre_instrumentation  H5, H6, H7
+#   numeric  trials: 5                     H3, H8  (H:102, H:264)
+# H3 and H8 carry one of each, so neither kind can be the only one handled.
+# `requires_pre_instrumentation: true` sits on exactly the records whose
+# required_tools include trace_capture, because that is what the boolean means:
+# the trace cannot be reconstructed after the runs, so the logging had to be on
+# before them. H1 is the stated exception - it IS the instrumentation.
+#
+# THE AGENT EVAL STACK (H:9-17) is the authority for `unlocks` in this file,
+# as D's pipeline box was for D and F's calibration stack for F:
+#   Environment  sandboxed, resettable, every call logged     (H1) -> all
+#   Success      outcome on end state, not trajectory match   (H2) -> H3,H4,H8
+#   Reliability  pass^k over k >= 5; always / flaky / never   (H3, H8)
+#   Economics    ₹ per SUCCESSFUL task                        (H4) -> J3
+#   Diagnosis    milestones + trace review -> taxonomy        (H5) -> H7
+#   Security     prompt injection: ASR alongside utility      (H6)
+# Note the asymmetry, and that it is deliberate: the stack's layering is an
+# ORDERING and is carried in `unlocks` alone, while only the two gates the
+# corpus states as hard preconditions are mirrored into `requires`. H2 unlocks
+# H3/H4/H8 without gating them, exactly as D1 unlocks D2 without gating it.
 #
 # pass^k, NOT pass@k. The corpus is explicit and the distinction is the whole
 # point of H3: pass@k is "any of k succeeds", pass^k is "all k succeed", and
@@ -14,22 +53,31 @@
 # Situation cell names something beyond "an agent acted". See G_rag.yaml's
 # header for the same collapse in a worse form.
 #
-# requires: H8's "k ≥ 5 trials" is a single bound and IS recorded, the same
-# rule that recorded C3 and E8.
+# WHAT COULD NOT BE WRITTEN:
+#   - reward-hacking detection has NO record in any section, so the unlocks
+#     edge the ticket asks for cannot be written without inventing one. The
+#     nearest records are E1 and E7, and neither is it. Reported.
+#   - H7's step 5, "Turn each category into an automatic detector" (H:236),
+#     unlocks a record that does not exist either.
+#   - A2_end_state_verification also triggers on agent_action, and it is in
+#     section A, so it carries no H1 gate. AGENT.md section 5's non-negotiable
+#     therefore holds across H but not across the whole agent plan. Not fixed
+#     here: section A is S13's, and the edit is proposed in S16-REPORT.md
+#     rather than made behind that stage's back.
 
 H1_resettable_env:
   section: H
   name: Sandboxed, resettable environment + full trajectory logging
   type: procedure
   triggers_on_situation: [agent_action]
-  required_signals: ["the real systems can be mocked in a container", "a snapshot can be restored before every run", "every tool call can be logged"]
+  required_signals: ["the real systems can be mocked in a container", "a snapshot can be restored before every run", "every tool call can be logged", "the mocks reproduce real behaviour including latency, pagination, rate limits and error codes, because a mock that never fails won't show how the agent handles failure", "the scaffold version - tool schemas, system prompt, retry policy - is recorded alongside the model on every result"]
   required_tools: [sandbox, snapshot_restore, trace_capture]
   ladder_priority: null
   requires: {}
-  produces: [reset_guarantee, trajectory_log]
+  produces: [reset_guarantee, trajectory_log, scaffold_version]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [E6_oracle_run]
+  unlocks: [H2_outcome_based_success, H3_pass_hat_k, H4_cost_per_success, H5_milestone_localisation, H6_injection_asr, H7_trajectory_taxonomy, H8_flaky_classification]
   conflicts_with: []
   analysis_cost: low
   capture_cost: high
@@ -44,30 +92,40 @@ H1_resettable_env:
     (listings, inventory, returns)
   rule_of_thumb: >-
     a containerised mock of the real systems, reset to a snapshot before every
-    run, with every tool call logged
-  source_ref: evals-situation-to-technique.md § H
+    run, with every tool call logged; the same model in two scaffolds commonly
+    differs by 15-20 points, so always report the model *and* the scaffold
+    version
+  source_ref: H-agents.md § H1
   extraction_notes: >-
     THE PRECONDITION for H2-H8, which is why gates is `absolute`: without a
-    resettable environment no agent number is reproducible. Typed `procedure`
-    per the ticket; `constraint` is a real alternative, because the Why cell
-    reads as a prohibition on evaluating agents against live systems. The
-    unlocks edges to H2-H8 are EL-116's, not this stage's. The Situation cell
-    is "Any agent evaluation", a universal within H, which is the same
-    unmappable-universal shape as C1's "Any score, ever"
+    resettable environment no agent number is reproducible. H:291-292 is the
+    top gate of the section's decision flow and is what `unlocks` and the
+    seven `environment_resets_per_run` booleans encode. requires is EMPTY and
+    has to be - this record is what makes the boolean true, and gating it on
+    its own output would deadlock the entire section (finding F7). Typed
+    `procedure` per the ticket; `constraint` is a real alternative, because
+    the Why cell reads as a prohibition on evaluating agents against live
+    systems. The companion is H:40 verbatim, "Run an oracle through it first
+    (Section E6)" - the environment is not trusted until the oracle clears
+    it. scaffold_version is added to produces from H:39, because H:23 makes
+    the scaffold part of the system under test and a result without it is not
+    interpretable. The Situation cell is "Any agent evaluation", a universal
+    within H, which is the same unmappable-universal shape as C1's "Any
+    score, ever"
 
 H2_outcome_based_success:
   section: H
   name: Outcome-based success on end state
   type: metric
   triggers_on_situation: [agent_action]
-  required_signals: ["the final state of the system is assertable", "the reference path is irrelevant to correctness"]
+  required_signals: ["the final state of the system is assertable", "the reference path is irrelevant to correctness", "post-conditions state what must be true AND what must not have changed afterwards", "the guardrails are explicit: no forbidden action, no step limit exceeded, no cost cap exceeded", "forbidden actions are enumerated and count as hard failures even when the end state is correct"]
   required_tools: [db_connection]
   ladder_priority: null
-  requires: {}
+  requires: {environment_resets_per_run: true}
   produces: [outcome_success_rate]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci, H4_cost_per_success]
+  unlocks: [H3_pass_hat_k, H4_cost_per_success, H8_flaky_classification]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -81,27 +139,34 @@ H2_outcome_based_success:
     roaming pack
   rule_of_thumb: >-
     assert the final state of the system, whatever path the agent took
-  source_ref: evals-situation-to-technique.md § H
+  source_ref: H-agents.md § H2
   extraction_notes: >-
     This is section A's A2 end-state verification applied to agents, and the
     two are NOT merged per the ticket. Typed `metric` rather than `grader` to
     keep CLAUDE.md section 6's grader list to A1-A6: it produces a success
     rate. The ambiguity is genuine and is reported - by section 6's own
-    "renders a verdict" test, H2 is a grader with no rung on A's ladder, which
-    is the same shape as B2
+    "renders a verdict" test, H2 is a grader with no rung on A's ladder,
+    which is the same shape as B2. The H4 companion is H:73, "Track path
+    efficiency separately (steps and ₹ per success) as a secondary metric,
+    not as a pass/fail criterion" - secondary, hence a companion and not a
+    gate. unlocks follows the stack at H:12-14: success is defined here
+    before reliability (H3, H8) or economics (H4) can be read, since all
+    three count successes. Those three are NOT given a matching boolean: the
+    stack states an ordering, and only H:291's "build it first" is stated as
+    a hard precondition
 
 H3_pass_hat_k:
   section: H
   name: pass^k (all k trials succeed), not pass@k
   type: metric
   triggers_on_situation: [agent_action, high_stakes_decision]
-  required_signals: ["each task can be attempted k times independently", "per-trial success is recorded"]
+  required_signals: ["each task can be attempted k times independently", "per-trial success is recorded", "pass^k is counted as the share of tasks that passed all k runs, never computed as p^k from the mean, because failures are correlated across tasks", "results are tracked by task category, since reliability varies far more across task types than the mean suggests"]
   required_tools: [sandbox, snapshot_restore]
   ladder_priority: null
-  requires: {}
+  requires: {environment_resets_per_run: true, trials: 5}
   produces: [pass_hat_k]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci, H8_flaky_classification]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -114,27 +179,39 @@ H3_pass_hat_k:
   domain_scenario: >-
     **Insurance**: claims-intake agent SLA in an enterprise contract
   rule_of_thumb: >-
-    the probability that *every* one of k attempts succeeds
-  source_ref: evals-situation-to-technique.md § H
+    the probability that *every* one of k attempts succeeds; pass@k flatters,
+    pass^k tells the truth - at 80% per trial, pass@5 = 1 − 0.2⁵ = 99.97%,
+    and pass^5 ≈ 0.8⁵ = 33% if trials were independent
+  source_ref: H-agents.md § H3
   extraction_notes: >-
-    pass^k, never pass@k - the id, name and produces all carry the caret form
-    so a later stage cannot quietly substitute the optimistic metric. The
-    second situation member is high_stakes_decision, because the Situation
-    cell is "Quoting reliability to a customer" in an SLA
+    pass^k, never pass@k - the id, name, produces and now rule_of_thumb all
+    carry the caret form so a later stage cannot quietly substitute the
+    optimistic metric. `trials: 5` is H:102 verbatim, "Run each task k >= 5
+    times in the reset environment": a single bound, recorded by the same
+    rule that recorded C3, E8 and H8, and S12 had left it empty. That same
+    line is also where the environment boolean comes from, so this record
+    carries one requirement of each kind. H8 is a companion because H:13 puts
+    both on one Reliability line of the stack and H8's three buckets are the
+    per-task decomposition of this record's single number. H:104's "Use
+    pass@1 (the mean) for internal iteration" is deliberately NOT added to
+    produces: naming pass@1 beside pass^k in a field the planner renders is
+    how the optimistic figure gets quoted by accident. The second situation
+    member is high_stakes_decision, because the Situation cell is "Quoting
+    reliability to a customer" in an SLA
 
 H4_cost_per_success:
   section: H
   name: Cost per successful task
   type: metric
   triggers_on_situation: [agent_action, two_candidates]
-  required_signals: ["total spend is attributable per run", "successes are counted separately from runs"]
+  required_signals: ["total spend is attributable per run", "successes are counted separately from runs", "the cost of every run is logged, successful or not", "the cost of human fallback per failed run is priceable"]
   required_tools: [cost_api]
   ladder_priority: null
-  requires: {}
-  produces: [cost_per_successful_task]
+  requires: {environment_resets_per_run: true}
+  produces: [cost_per_successful_task, full_cost_per_resolution]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [H2_outcome_based_success]
+  unlocks: [J3_cost_quality_pareto]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -147,25 +224,36 @@ H4_cost_per_success:
     **Logistics**: an address-correction agent fixing PIN code and landmark
     errors before dispatch
   rule_of_thumb: >-
-    total ₹ spend ÷ number of successful completions
-  source_ref: evals-situation-to-technique.md § H
+    ₹ per success = total ₹ / successes, including the cost of failed runs and
+    retries; add the cost of human fallback per failure to get the full cost
+    per resolution
+  source_ref: H-agents.md § H4
   extraction_notes: >-
     two_candidates is mapped alongside agent_action because the Situation cell
-    is "Comparing agent costs" and the Example compares two agents
+    is "Comparing agent costs" and the Example compares two agents.
+    full_cost_per_resolution is added to produces from H:138 - it is the
+    number that flips the logistics scenario's answer, and the row's own
+    worked example computes it. unlocks names J3 from H:139 verbatim, "Plot
+    success rate against ₹ per success across candidates, and choose on that
+    frontier (Section J3)". H2 is a companion because ₹ per success is
+    meaningless without the success definition that produced the
+    denominator. H:138's "₹40 of agent time per escalation" and the worked
+    example's ₹25 are scenario figures, not thresholds, so requires holds no
+    number
 
 H5_milestone_localisation:
   section: H
   name: Milestone checkpoints + step-level failure localisation
   type: metric
   triggers_on_situation: [agent_action]
-  required_signals: ["the task decomposes into verifiable sub-goals", "the step at which a run stops is recoverable from the trace"]
-  required_tools: [trace_capture]
+  required_signals: ["the task decomposes into verifiable sub-goals", "the step at which a run stops is recoverable from the trace", "milestones are state checks - \"PO matched in DB\" - and not transcript events - \"agent said it matched\"", "the furthest milestone each run reached is recorded, so a survival curve can be plotted"]
+  required_tools: [trace_capture, db_connection]
   ladder_priority: null
-  requires: {}
+  requires: {environment_resets_per_run: true, requires_pre_instrumentation: true}
   produces: [milestone_reached, failure_step_distribution]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [H2_outcome_based_success]
+  unlocks: [H7_trajectory_taxonomy]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: medium
@@ -179,24 +267,37 @@ H5_milestone_localisation:
     **Fintech**: an agent reconciling GSTR-2B against purchase registers for an
     SME
   rule_of_thumb: >-
-    define 5–10 verifiable sub-goals and score how far each run gets
-  source_ref: evals-situation-to-technique.md § H
+    define 5-10 verifiable sub-goals and score how far each run gets; task
+    success ≈ (per-step success)^steps, so 0.98⁴⁰ = 0.45 and 0.99⁴⁰ = 0.67
+  source_ref: H-agents.md § H5
   extraction_notes: >-
-    "5–10 verifiable sub-goals" is a range and stays in rule_of_thumb rather
-    than requires, the same rule applied to E4 and F1
+    "5-10 verifiable sub-goals" is a range and stays in rule_of_thumb rather
+    than requires, the same rule applied to E4 and F1. The compounding
+    formula is H:21 verbatim; it is a section-level rule of thumb with no
+    record of its own, and this is the step-level record, so it is carried
+    here rather than dropped - CLAUDE.md section 4 lists "step compounding"
+    among H's contents and this is the only record it can mean.
+    required_tools gains db_connection from H:167, "Define milestones as
+    state checks (A2), not transcript events": a milestone that reads the
+    transcript is the failure this record exists to prevent, so asserting
+    state is not optional. requires_pre_instrumentation is here because the
+    per-step record cannot be reconstructed after the runs. H2 is a companion
+    from H:170, "The headline metric is still full-task success" - partial
+    credit is for internal tracking only. unlocks names H7 from H:310-311,
+    where the flow goes milestones -> survival curve -> then read the traces
 
 H6_injection_asr:
   section: H
   name: "Prompt-injection test suite: ASR measured alongside task utility"
   type: metric
   triggers_on_situation: [agent_action, measuring_safety]
-  required_signals: ["adversarial instructions can be planted in content the agent reads", "task utility is measured on the same runs as the hijack rate"]
+  required_signals: ["adversarial instructions can be planted in content the agent reads", "task utility is measured on the same runs as the hijack rate", "attacker success is defined concretely, for example data sent to an address outside the allowlist, or a candidate's rank changed", "the same tasks are measured with and without each defence", "high-risk actions are gated deterministically by allowlist or confirmation, rather than by the model's judgement alone"]
   required_tools: [sandbox, trace_capture]
   ladder_priority: null
-  requires: {}
+  requires: {environment_resets_per_run: true, requires_pre_instrumentation: true}
   produces: [injection_asr, task_utility]
   gates: absolute
-  companion_checks: []
+  companion_checks: [H2_outcome_based_success]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -212,21 +313,30 @@ H6_injection_asr:
   rule_of_thumb: >-
     plant adversarial instructions in documents, emails and web pages, then
     measure hijack rate and task success
-  source_ref: evals-situation-to-technique.md § H
+  source_ref: H-agents.md § H6
   extraction_notes: >-
-    ASR and utility are both in produces because the row insists on "alongside":
-    a defence that stops every injection by refusing every task is the failure
-    this row exists to catch, which is the same never-alone rule as D6 and G6
+    ASR and utility are both in produces because the row insists on
+    "alongside": a defence that stops every injection by refusing every task
+    is the failure this row exists to catch, which is the same never-alone
+    rule as D6 and G6 - and the same unexpressible pairing, since both
+    numbers come from this one record. H2 is the companion that carries the
+    utility half, from H:200, "Measure ASR and utility on the same tasks".
+    requires_pre_instrumentation is here because an attacker success is
+    detected in the tool calls, which is trace_capture's data.
+    "100-300 injected items" (H:198) is a range. A companion edge to
+    D6_upper_bound_no_safe_headline would make AGENT.md section 5's
+    reporting rule hold for this ASR too, and was DECLINED because H6 never
+    cites section D; flagged in S16-REPORT.md instead of written
 
 H7_trajectory_taxonomy:
   section: H
   name: Trajectory review with open coding → failure taxonomy
   type: procedure
   triggers_on_situation: [agent_action, debugging_regression]
-  required_signals: ["full traces are retrievable for 50-100 runs", "failure modes can be tagged inductively"]
+  required_signals: ["full traces are retrievable for 50-100 runs", "failure modes can be tagged inductively", "the note taken on each trace is about the FIRST thing that went wrong, not the final symptom", "20 traces are re-read after clustering, to check the categories hold up"]
   required_tools: [trace_capture]
   ladder_priority: null
-  requires: {}
+  requires: {environment_resets_per_run: true, requires_pre_instrumentation: true}
   produces: [failure_taxonomy, failure_mode_counts]
   gates: false
   companion_checks: []
@@ -244,23 +354,31 @@ H7_trajectory_taxonomy:
     the SKU field
   rule_of_thumb: >-
     read 50–100 traces, tag failure modes inductively, then count them
-  source_ref: evals-situation-to-technique.md § H
+  source_ref: H-agents.md § H7
   extraction_notes: >-
-    The agent form of section I's I3 error analysis; both are kept. "50–100
-    traces" is a range and stays in rule_of_thumb
+    The agent form of section I's I3 error analysis; both are kept. "50-100
+    traces" is a range and stays in rule_of_thumb - and it is genuine here,
+    unlike the "50-100 human labels" that S15 traced to this row being quoted
+    under F1's name. H:234's "re-read 20 traces" IS a single number but is a
+    step of the procedure rather than a precondition on it, so it is a
+    required_signal and not a threshold. requires_pre_instrumentation is the
+    plainest case in the section: a trace nobody captured cannot be read
+    afterwards. unlocks is empty because H:236's "Turn each category into an
+    automatic detector" names no record that exists - the same gap as
+    reward-hacking detection, reported rather than papered over
 
 H8_flaky_classification:
   section: H
   name: k ≥ 5 trials per task → classify tasks as always / flaky / never
   type: diagnostic
   triggers_on_situation: [agent_action, stochastic_system]
-  required_signals: ["each task can be repeated at least five times", "pass counts per task are recorded"]
+  required_signals: ["each task can be repeated at least five times", "pass counts per task are recorded", "the three bucket counts are reported alongside the mean, not instead of it", "passing and failing traces of the same task can be compared, since the first point where they diverge is usually the cause"]
   required_tools: [sandbox, snapshot_restore]
   ladder_priority: null
-  requires: {trials: 5}
+  requires: {environment_resets_per_run: true, trials: 5}
   produces: [always_flaky_never_buckets]
   gates: false
-  companion_checks: []
+  companion_checks: [E6_oracle_run]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -276,9 +394,18 @@ H8_flaky_classification:
   rule_of_thumb: >-
     repeat each task, bucket by pass count, and investigate the flaky bucket
     separately
-  source_ref: evals-situation-to-technique.md § H
+  source_ref: H-agents.md § H8
   extraction_notes: >-
-    "k ≥ 5 trials" is a single bound, so it IS recorded as {trials: 5} - the
-    same rule as C3's "k ≥ 5 runs" and E8's "3+ benchmarks". This is the
-    infra-versus-capability record CLAUDE.md section 4 names for H, and typed
-    `diagnostic` because its output explains a number rather than scoring one
+    "k >= 5 trials" is a single bound, so it IS recorded as {trials: 5} - the
+    same rule as C3's "k >= 5 runs" and E8's "3+ benchmarks" - and H:264 adds
+    "in the reset environment (H1)" in the same breath, which is where the
+    boolean comes from. This is the infra-versus-capability record CLAUDE.md
+    section 4 names for H, and it is typed `diagnostic` because its output
+    explains a number rather than scoring one. E6 is a companion from H:267
+    verbatim, "For 'never' tasks, run the oracle (E6) to separate harness
+    bugs from real capability gaps" - the banking scenario is exactly that,
+    where the oracle also failed 9 of 12. required_tools deliberately stays
+    [sandbox, snapshot_restore] and does NOT gain trace_capture: the three
+    buckets need pass counts only, and H:266's trace diff is the follow-up
+    that reaches into H5/H7's data, so requiring the tool here would make the
+    classification unavailable for a step that is not part of it

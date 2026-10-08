@@ -2,21 +2,39 @@
 # master-lookup row, in the deep dive's numbering (C1-C6, from
 # '^# C[0-9]+ ' headers).
 #
-# Skeleton extraction from evals-situation-to-technique.md only. The three
-# cross-reference fields are [] everywhere and ladder_priority is null. See
-# A_grading.yaml's header for how gates and the two cost fields were derived.
+# S14 (EL-114) enriched this file from C-deciding-whether-a-result-is-real.md.
+# Citations in extraction_notes are `C:<line>` against that file.
+# anti_pattern, worked_example and domain_scenario are untouched - they are the
+# master lookup's columns and tests/test_records.py diffs them against it.
 #
-# requires is {} everywhere EXCEPT C3, whose Use cell states "k ≥ 5 runs per
-# item" - a readiness threshold, verbatim, in this stage's own source. It is
-# copied rather than deferred to EL-113, because CLAUDE.md section 3 wants a
-# stated threshold copied wherever it is found.
+# THREE FORMULAS ARE NOW VERBATIM, and two of our own docs had them wrong.
+# The corpus file decides; see S14-REPORT.md for the three-row resolution.
+#   POWER       C:19 / C:69  "Sample size per arm ≈ 16·p(1−p) / δ²"
+#                            NOT "16/gap²", which TASKS.md and AGENT.md said.
+#                            The p(1−p) factor is 4x at p = 0.5.
+#   NOISE FLOOR C:94 / C:97  "k ≥ 5 RUNS PER ITEM", k = 3 only for daily
+#                            iteration (C:103). NOT a "3-5 runs" range.
+#   CI MARGIN   absent       C NEVER states `margin ≈ 100/√n`. It is B5's
+#                            (B:22, B:176) and S13 put it there. TASKS.md S14
+#                            listed it under this stage in error.
+#
+# requires is empty in five of six records, and that is correct rather than
+# unfinished. C is the section that decides whether OTHER records' numbers are
+# real; its own techniques mostly need no accumulated evidence. C2 in
+# particular runs before any data exists. C3 is the exception and keeps the one
+# readiness bound in the section, now re-cited to the deep dive.
+#
+# gates confirmed against the deep dives, not re-derived: C1/C3/C4/C5/C6
+# statistical (each produces an inference that blocks only on clearing a bar),
+# C2 false (C:238's decision flow puts it before data exists; it sizes the eval
+# and blocks nothing).
 
 C1_wilson_ci:
   section: C
   name: Report a 95% CI (Wilson for proportions)
   type: statistic
   triggers_on_situation: [all_candidates_high, all_candidates_zero, benchmark_too_good, length_increased, many_slices_checked, no_change_score_moved, score_jumped, score_near_0_or_100, score_up_business_flat, single_benchmark_dominance, small_sample]
-  required_signals: ["a proportion and its denominator n are both known"]
+  required_signals: ["a proportion and its denominator n are both known", "the interval is part of the harness's default output format, not an extra step", "every slice carries its own interval, because slices are smaller and their intervals wider"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -35,29 +53,36 @@ C1_wilson_ci:
     **Healthcare**: a discharge-summary checker reports 82% on 100 notes. The
     CI tells the CMO it is not ready
   rule_of_thumb: >-
-    an interval that stays inside [0, 1] and is valid at small n
-  source_ref: evals-situation-to-technique.md § C
+    Make the CI part of the output format: print `82.0% [73.3, 88.3] n=100` by
+    default. Compare the interval with the decision threshold - if the whole CI
+    is above the bar, ship; if the whole CI is below, no; if it straddles the
+    bar, you need more data
+  source_ref: C-deciding-whether-a-result-is-real.md § C1
   extraction_notes: >-
     THE ONE ROW THAT DOES NOT MAP. Its Situation cell is "Any score, ever" -
     universal - and Situation has no member meaning "a score exists", so there
-    is no faithful mapping and the ticket forbids adding one. The schema
-    requires triggers_on_situation to be non-empty, so this is the nearest
-    honest set: every member of the measurement family (a number has been
-    observed, which is exactly when the row applies) plus small_sample, where
-    the interval is widest and most decision-relevant. It is deliberately
-    narrower than the row. Two things follow. C1 will NOT fire on an artifact
-    or lifecycle situation, so a plain "I graded 100 code outputs" session gets
-    no interval from matching alone; and the real route is
-    companion_checks - every grader and metric record should name C1 - which is
-    EL-113's job and is why the gap is survivable. This is open ruling 1 in
-    TASKS.md and needs a decision, not an extraction choice
+    is no faithful mapping. The schema requires triggers_on_situation to be
+    non-empty, so this is the nearest honest set: every member of the
+    measurement family (a number has been observed, which is exactly when the
+    row applies) plus small_sample, where the interval is widest and most
+    decision-relevant. It is deliberately narrower than the row. THE ROUTE OUT
+    IS companion_checks, and it is now half built: S13 added C1 to all seven A
+    records and S14 adds it to D5 and D6, on the authority of 00-INDEX.md:35,
+    "Put a confidence interval on every number". E-J still have to do the same
+    in S15-S17, after which C1 is reachable from any graded artifact and the
+    narrow trigger set stops mattering. companion_checks here stays EMPTY: C1
+    is the companion other records name, and naming anything back would make
+    every interval drag a second record into the plan. requires is empty
+    because the record states no evidence floor; C:35's "the textbook (Wald)
+    interval misbehaves below n ≈ 100" is a bound on the interval NOT to use,
+    not a readiness bound on Wilson, which C:28 says is "accurate at small n"
 
 C2_power_analysis:
   section: C
   name: Power analysis (sample-size calculation)
   type: statistic
   triggers_on_situation: [pre_development, building_eval_set]
-  required_signals: ["the minimum effect worth detecting is stated", "the baseline rate is known or assumed", "the design is known to be paired or unpaired"]
+  required_signals: ["the minimum effect worth detecting is stated", "the baseline rate is known or assumed", "the design is known to be paired or unpaired", "for a paired design, the expected share of discordant items is estimated from a 50-item pilot", "n is written down before the run, not chosen once the result looks significant"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -78,27 +103,49 @@ C2_power_analysis:
     **Fintech**: a KYC document extractor where you need to detect a 5-pt
     improvement before re-training
   rule_of_thumb: >-
-    solve for the n that detects the minimum effect you care about at α = 0.05
-    and power = 0.8
-  source_ref: evals-situation-to-technique.md § C
+    Sample size per arm ≈ 16·p(1−p) / δ² (α = 0.05, 80% power). Unpaired:
+    n ≈ 16·p(1−p)/δ² per arm. Paired (McNemar):
+    n ≈ (1.96·√d + 0.84·√(d − δ²))² / δ², where d is the expected share of
+    discordant items
+  source_ref: C-deciding-whether-a-result-is-real.md § C2
   extraction_notes: >-
     "Before running the eval" maps to two lifecycle members, pre_development
-    and building_eval_set. gates is `false`: a power analysis sizes the eval
-    and blocks nothing; the "n is too small to read this" judgement is
-    readiness (EL-121), not a gate
+    and building_eval_set. THE POWER FORMULA IS THE HEADLINE CORRECTION OF THIS
+    STAGE. The corpus states it three times and identically: C:19 "Sample size
+    per arm ≈ 16·p(1−p) / δ² (α = 0.05, 80% power)", C:69 "Unpaired:
+    n ≈ 16·p(1−p)/δ² per arm", and C:249 in the decision flow. TASKS.md S14 and
+    T16.5, and AGENT.md section 3.8, all said "n ≈ 16/gap²", which DROPS the
+    p(1−p) factor and is wrong by 4x at p = 0.5, not merely differently worded.
+    CLAUDE.md section 4 was already correct (EL-004 fixed it); the other two
+    are fixed in this stage's diff. The PAIRED formula at C:70 had no home in
+    any of our docs at all and is now recorded. ALSO A CORPUS-INTERNAL
+    DISCREPANCY, left as found and raised in the report: worked_example is the
+    master lookup's "≈ 905 items per arm" and "a paired design with 60%
+    agreement needs ≈ 400", while the deep dive at C:19 and C:65 says "≈ 920
+    items per arm" and "≈ 375" at 12% discordance - different figures AND a
+    different paired parameter. worked_example is lookup-verbatim and guarded
+    by tests, so it is not touched here. requires is EMPTY and that is right,
+    not unfinished: a power analysis runs before any data exists, so there is
+    nothing to be ready for. gates is `false` for the same reason - it sizes
+    the eval and blocks nothing; "n is too small to read this" is readiness,
+    not a gate. C:70's 50-item pilot is a single verbatim number but applies
+    only to the paired branch, and requires cannot hold a branch-conditional
+    threshold, so it is carried in required_signals instead. The MDE that C:71
+    tells you to publish is a second output this record does not declare;
+    produces is outside this stage's field list and is left alone
 
 C3_repeat_runs:
   section: C
   name: k ≥ 5 runs per item; report the mean ± SD across runs
   type: statistic
   triggers_on_situation: [stochastic_system]
-  required_signals: ["the full eval can be repeated with different seeds or samples", "run-to-run variance is treated as the noise floor"]
+  required_signals: ["the full eval can be repeated with different seeds or samples", "run-to-run variance is treated as the noise floor", "the seed and the provider model version are logged for every run", "items can be classified by pass count: always, sometimes, never"]
   required_tools: []
   ladder_priority: null
   requires: {runs: 5}
   produces: [mean_across_runs, sd_across_runs, noise_floor]
   gates: statistical
-  companion_checks: []
+  companion_checks: [B1_paired_evaluation, E4_aa_baseline]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -112,19 +159,40 @@ C3_repeat_runs:
     **Insurance**: a health-claim triage agent whose tool calls vary between
     runs
   rule_of_thumb: >-
-    k ≥ 5 runs per item; report the mean ± SD across runs
-  source_ref: evals-situation-to-technique.md § C
+    Run k = 5 for decisions and k = 3 for daily iteration. Only call a
+    difference real if it is larger than about 2× the run-to-run SD and the
+    paired CI agrees
+  source_ref: C-deciding-whether-a-result-is-real.md § C3
   extraction_notes: >-
-    The only requires in these three sections. "k ≥ 5" is stated verbatim in
-    the Use cell, so it is copied as {runs: 5} rather than left for EL-113.
-    capture_cost is high because the threshold multiplies every capture by five
+    THE NOISE FLOOR IS k ≥ 5, NOT "3-5 RUNS", and this is the stage's second
+    doc correction. The corpus says 5 three times: the record's own title at
+    C:94 "k ≥ 5 RUNS PER ITEM; REPORT MEAN ± SD ACROSS RUNS", C:97 "you run the
+    full eval k ≥ 5 times", and C:242 in the decision flow. C:103 is the only
+    place 3 appears and it DOWNGRADES it explicitly - "Run k = 5 for decisions
+    and k = 3 for daily iteration" - so a "3-5" range is not a loose
+    restatement but a claim the corpus denies: it implies 3 is enough for a
+    decision. TASKS.md S14 said "noise floor 3-5 runs", AGENT.md section 3.8
+    said "noise floor from 3-5 repeat runs", and USER_EXPERIENCE.md section 3.1
+    renders a pending line as "needs runs: 3". All three are fixed in this
+    stage's diff; CLAUDE.md section 4's "k ≥ 5 runs" was already right.
+    requires {runs: 5} was already correct from S10, which copied it from the
+    lookup's Use cell; it is unchanged and now cited to the deep dive.
+    TWO COMPANIONS, both named by the corpus as records: C:107 "Only call a
+    difference real if it's larger than about 2× the run-to-run SD *and* the
+    paired CI (B1) agrees" names B1, and C:105 "Don't treat temperature 0 as
+    deterministic ... Measure it (see E4)" names E4. ONE NUMBER HAS NO FIELD:
+    C:107's "about 2× the run-to-run SD" is a bar on a quantity this record
+    produces (sd_across_runs), which is the same unrepresentable shape S13
+    raised as finding F2; it is verbatim in rule_of_thumb and nothing can act
+    on it. capture_cost stays high because the threshold multiplies every
+    capture by five
 
 C4_near_bounds_interval:
   section: C
   name: Wilson / Clopper–Pearson interval; rule of three when there are 0 events
   type: statistic
   triggers_on_situation: [score_near_0_or_100]
-  required_signals: ["the observed score is near 0% or 100%", "the event count and n are both known"]
+  required_signals: ["the observed score is near 0% or 100%, or n < 100", "the event count and n are both known", "zero events in n trials are reported with the upper bound, never as \"0 failures\" or \"100%\"", "Clopper–Pearson is used when a regulator or auditor wants a conservative exact interval, Wilson otherwise", "counts are reported next to percentages, so the reader sees the evidence and the sample size in one figure"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -145,20 +213,35 @@ C4_near_bounds_interval:
     **Healthcare**: medication-dosage extraction scores 198/200 on
     prescriptions
   rule_of_thumb: >-
-    exact or score-based intervals. With 0 events in n, the 95% upper bound ≈
-    3/n
-  source_ref: evals-situation-to-technique.md § C
+    Rule of three: 0 failures in n items → the true failure rate is ≤ 3/n at
+    95% confidence. Turned around to size a safety eval, claiming ≤ 0.1% needs
+    3,000 clean items and ≤ 0.01% needs 30,000
+  source_ref: C-deciding-whether-a-result-is-real.md § C4
   extraction_notes: >-
     Not merged with C1 although both produce a Wilson interval: separate rows
-    in the lookup, separate deep-dive numbers, and the ticket forbids merging.
-    C1 is "any score", C4 is the near-boundary case plus the rule of three
+    in the lookup, separate deep-dive numbers. C1 is "any score", C4 is the
+    near-boundary case plus the rule of three. THE NEAR-BOUNDARY CONDITION IS
+    IN required_signals, NOT requires, AND THE CHOICE IS FORCED. The condition
+    is C:245's decision flow verbatim, "Is the score near 0% or 100%, or
+    n < 100?" - and that n < 100 is an UPPER bound: C4 applies BELOW 100, where
+    Wald breaks. requires reads every value as a floor, so writing {n: 100}
+    would mean "needs n ≥ 100" and invert the record's own trigger, switching
+    it off in exactly the case it exists for. This is the sharpest instance yet
+    of S13's finding F3 (requires encodes no direction) and the first where the
+    wrong encoding would be actively harmful rather than merely inert. The rest
+    of the condition is verbatim from C:138, C:140 and C:141. rule_of_thumb is
+    C:20 and C:139 verbatim, both sentences. C:139's 3,000 and 30,000 are
+    conditional on which claim you want to make, so neither is a readiness
+    threshold either. This record is what D6 depends on - see D6's
+    companion_checks and the edge is written there, because D6 is the record
+    that cannot be reported without it
 
 C5_multiple_comparisons:
   section: C
   name: Multiple-comparison correction (Holm–Bonferroni; Benjamini–Hochberg for exploration)
   type: statistic
   triggers_on_situation: [many_slices_checked]
-  required_signals: ["the number of tests or slices in the family is known", "a per-test p-value exists for each"]
+  required_signals: ["the number of tests or slices in the family is known", "a per-test p-value exists for each", "every test looked at is counted, including slices, metrics and variants that were never reported", "pre-registered must-check slices are excluded from the family count", "a winner picked from N variants is re-measured on a held-out set before its score is quoted"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -178,23 +261,35 @@ C5_multiple_comparisons:
     **Telecom**: a support bot evaluated across 20 languages and circles. Tamil
     dipped. Is it real?
   rule_of_thumb: >-
-    tighten the per-test α so the family-wise (or false-discovery) error stays
-    at 5%
-  source_ref: evals-situation-to-technique.md § C
+    False-alarm odds: checking k slices at α = 0.05 gives P(at least one false
+    alarm) = 1 − 0.95ᵏ, already 64% at k = 20. Bonferroni: α per test =
+    0.05 / k. Holm is uniformly better: sort the p-values, compare the smallest
+    with 0.05/k, the next with 0.05/(k−1), and so on. For exploration, use BH
+    at q = 0.10
+  source_ref: C-deciding-whether-a-result-is-real.md § C5
   extraction_notes: >-
-    Type is genuinely arguable, as the ticket anticipated. The row reads as a
-    `constraint` - do not read one slice out of twenty without correcting - and
-    the planner would enforce it that way. It is typed `statistic` because it
-    produces two numbers the cell names, a corrected α and an adjusted p-value,
-    and CLAUDE.md section 6 reserves `constraint` for records that forbid
-    something and produce nothing. The prohibition is the anti_pattern here
+    Type is genuinely arguable, as S10 noted. The row reads as a `constraint` -
+    do not read one slice out of twenty without correcting - and the planner
+    would enforce it that way. It is typed `statistic` because it produces two
+    numbers the cell names, a corrected α and an adjusted p-value, and
+    CLAUDE.md section 6 reserves `constraint` for records that forbid something
+    and produce nothing. The prohibition is the anti_pattern here. rule_of_thumb
+    is four verbatim fragments: C:21's false-alarm odds, C:173's two
+    corrections and C:174's BH parameter. q = 0.10 is a correction PARAMETER,
+    not a readiness threshold, so it is here and not in requires - although
+    schema.py's own docstring cites "BH q = 0.10 (C:174)" while arguing for
+    float support in requires, which is a framing that should be corrected when
+    EL-107's requires type is settled. C:175 tells you to re-measure a picked
+    winner on a held-out set and NO RECORD EXISTS for that; the winner's curse
+    has no technique row in any section, so the instruction survives only as a
+    required_signal here. Raised in the report
 
 C6_permutation_test:
   section: C
   name: Permutation test
   type: statistic
   triggers_on_situation: [heavy_tailed_metric]
-  required_signals: ["per-item A/B outcomes are recorded", "the test's distributional assumptions are doubted"]
+  required_signals: ["per-item A/B outcomes are recorded", "the test's distributional assumptions are doubted", "the statistic was chosen to suit the data before the results were looked at", "for a paired design, the shuffle flips the sign of each item's difference rather than permuting across items"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -215,12 +310,17 @@ C6_permutation_test:
     **Logistics**: delivery-ETA error in minutes. A few 6-hour misses dominate
     the mean
   rule_of_thumb: >-
-    shuffle the A/B labels per item 10,000× and count how often the shuffled
-    difference ≥ the observed one
-  source_ref: evals-situation-to-technique.md § C
+    Use 10,000 shuffles; the smallest p-value you can report is 1/10,000. Use
+    the median or a 10% trimmed mean for heavy tails and the mean when the
+    tails are light, and report p95 or p99 separately
+  source_ref: C-deciding-whether-a-result-is-real.md § C6
   extraction_notes: >-
     The Situation cell is "You don't trust the test's assumptions", which is
     broader than any member. Mapped to heavy_tailed_metric because that is the
     violation the row's own Why and Example cells name (latency, ₹ cost, ETA
     error). A session that distrusts its assumptions for some other reason will
-    not match. Flagged for EL-114
+    not match, and the deep dive does not widen the mapping: C:204's own
+    framing is heavy tails throughout. rule_of_thumb is C:209, C:207 and C:210
+    verbatim. The 10,000 shuffles are a method parameter rather than a
+    readiness threshold, so requires stays empty - the record states no minimum
+    item count anywhere, which is the same n = 1 gap S13 raised for B1

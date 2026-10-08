@@ -1,0 +1,28 @@
+# Fixture 17 - the answers got longer. The length-bias diagnostic fires.
+#
+# E3_length_controlled_win_rate is reached DIRECTLY here, from the
+# length_increased measurement member, and it needs no evidence and no tool: it
+# is E's first action for the symptom (E-when-a-number-looks-wrong.md:13,
+# "Score up, answers got longer -> E3 length-controlled win rate").
+#
+# Note the contrast with fixture 3. There, E3 was supposed to arrive as A4's
+# mandated companion and did not, because A4 was pending. Here the same record
+# is ready because the situation selects it on its own. The length-bias rule of
+# AGENT.md section 5 therefore holds when the symptom is observed and NOT when
+# a judge is merely planned - which is the practical shape of the
+# companion-of-a-pending-host problem in S17-REPORT.md section 4.
+#
+# A4 is unavailable rather than pending because llm_api is not granted: this
+# fixture is about the diagnostic, and the judge's own state is fixture 3's.
+name: length_increased_summarization
+given:
+  situations: [length_increased, summarization]
+  available_tools: []
+  evidence: {}
+expect:
+  ready: [C1_wilson_ci, E3_length_controlled_win_rate]   # statistic, then diagnostic
+  pending: {}
+  unavailable:
+    A4_judge_binary_criteria: [llm_api]
+  companions: {}
+  prohibited: []

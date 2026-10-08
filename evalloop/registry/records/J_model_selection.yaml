@@ -1,6 +1,11 @@
 # Section J - CHOOSING A MODEL. Five records, one per master-lookup row, in the
 # deep dive's numbering (J1-J5, from '^# J[0-9]+ ' headers). These complete the
-# skeleton at 73.
+# skeleton at 73, and S17 (EL-117) is the stage that completes the registry.
+#
+# Enriched from J-choosing-a-model.md. Citations in extraction_notes are
+# `J:<line>` against that file. anti_pattern, worked_example and
+# domain_scenario are untouched - they are the master lookup's columns and
+# tests/test_records.py diffs them against it.
 #
 # All five are PROCEDURES: each is a sequenced way of narrowing a field of
 # candidates, not a number or an inference. They trigger on
@@ -11,25 +16,50 @@
 #
 # gates is `false` on all five and the source states no gate for any of them:
 # model selection ends in a choice, and the thing that blocks is the eval the
-# chosen model then has to pass (section I). Listed in the report with I3, I5,
-# I6 and I8 as the rows whose gates would be null if Gate had a null member.
+# chosen model then has to pass (section I). Listed in the report with I3, I5
+# and I8 as the rows whose gates would be null if Gate had a null member.
 #
-# Two ranges seen and NOT recorded in requires: J2's "300–500 items" and J5's
-# "100–200 item held-out set". Same rule as E4, F1, F6, H5 and H7.
+# J DOES NOT RESTATE B AND C - IT POINTS AT THEM, which is what the ticket
+# asks for. The funnel (J:9-21) is the ordering authority:
+#   J1 constraints + 50-item smoke  -> J2   (J:16-18, ~9 viable -> ~4 finalists)
+#   J2 paired eval on 300-500 items -> J3   (J:81 verbatim: "if the paired CI
+#                                            includes 0, the models are tied,
+#                                            and you choose on cost (J3)")
+# and the statistics come in as companions, each from its own line:
+#   J1 -> B5   J:28  "Its margin is ±14 points" at n = 50 - B5's 100/√n
+#   J2 -> B1   J:79  "paired CIs of the differences"
+#   J2 -> C1   J:79  "Report pass rates with Wilson CIs"
+#   J2 -> E5   J:78  "Include your hard set (E5)"
+#   J2 -> F4   J:80  "100 human pairwise judgments (both orders)"
+#   J3 -> B1   J:119 "Test equivalence with a paired CI"
+#   J3 -> H4   J:111 "₹ per 1,000 tasks, or ₹ per *successful* task (H4)"
+#   J5 -> C1   J:188 "report Wilson CIs by slice"
+#   J5 -> E7   J:190 "Re-test on a fresh sample after onboarding to catch any
+#                     tuning to your data during the pilot"
+#
+# The reciprocal edges - B1 -> J3, C1 -> J2/J5 - are NOT written, because they
+# live in sections S13 and S14 enriched and this stage does not edit another
+# stage's file to add documentation that changes no plan (`unlocks` is read by
+# nothing; S16 finding F8). They are proposed in S17-REPORT.md.
+#
+# Ranges seen and NOT recorded in requires: J2's "300-500 items" (J:68, J:71),
+# J5's "100-200 item held-out set" (J:177, J:186), J1's "3-5 finalists"
+# (J:46). Same rule as E4, F1, F6, H5 and H7. The SINGLE figures that ARE
+# recorded: J1's 50 smoke items and J2's 100 human pairwise judgments.
 
 J1_constraint_filter_smoke:
   section: J
   name: Hard-constraint filter → 50-item smoke test
   type: procedure
   triggers_on_situation: [model_selection, many_candidates]
-  required_signals: ["the non-negotiables are written down (price, latency, context, language, data residency)", "a 50-item domain test can be assembled quickly"]
-  required_tools: []
+  required_signals: ["the non-negotiables are written down (price, latency, context, language, data residency)", "a 50-item domain test can be assembled quickly", "each constraint has a named owner: legal owns residency, infra owns latency, finance owns price", "latency is measured from your own region, with your prompt length, at p95 - not taken from the vendor's figure", "the smoke test is built from your hardest real items, including regional languages and edge cases"]
+  required_tools: [llm_api, cost_api]
   ladder_priority: null
-  requires: {}
+  requires: {smoke_items: 50}
   produces: [surviving_candidates, smoke_test_score]
   gates: false
-  companion_checks: []
-  unlocks: []
+  companion_checks: [B5_ci_from_n]
+  unlocks: [J2_full_domain_eval]
   conflicts_with: []
   analysis_cost: low
   capture_cost: low
@@ -42,26 +72,38 @@ J1_constraint_filter_smoke:
     **Fintech**: a lending platform with RBI data-localisation requirements
   rule_of_thumb: >-
     eliminate on non-negotiables (price, latency, context, language, data
-    residency), then run a tiny domain test
-  source_ref: evals-situation-to-technique.md § J
+    residency), then run a tiny domain test; a 50-item smoke test catches
+    disqualifying failures and not small differences, because its margin is
+    ±14 points - eliminate on disqualifying failures only, and do not rank
+  source_ref: J-choosing-a-model.md § J1
   extraction_notes: >-
-    CLAUDE.md section 4 calls this "benchmarks as filter". The 50-item count is
-    part of the technique's name and stays in name and rule_of_thumb; it is not
-    a readiness threshold on evidence, so requires stays empty
+    CLAUDE.md section 4 calls this "benchmarks as filter". `{smoke_items: 50}`
+    is RECORDED, which overturns S12's call that the 50 was only part of the
+    name: it is a single figure, stated three times (J:33, J:44, J:45), and it
+    is genuinely a readiness condition - there is no smoke test until the 50
+    items exist, and the planner should say so rather than fire on 3. B5 is
+    the companion from J:28, "Its margin is ±14 points", which is B5's own
+    margin ≈ 100/√n evaluated at n = 50 (100/√50 = 14.1); carrying the edge
+    means the ±14 is derived by the registry and not restated as a constant
+    here. required_tools gains llm_api and cost_api from J:42-44: you cannot
+    measure p95 latency from your own region or check a price ceiling without
+    calling the candidates. "below 50% accuracy" (J:45) is an elimination bar
+    on a produced metric, so it is in rule_of_thumb, not requires or gates;
+    "3-5 finalists" (J:46) is a range
 
 J2_full_domain_eval:
   section: J
   name: Full domain eval (300–500 items) with paired stats + human pairwise review on a subset
   type: procedure
   triggers_on_situation: [model_selection, many_candidates]
-  required_signals: ["the shortlisted models can be run on the same items", "humans are available for a preference subset on the top two"]
+  required_signals: ["the shortlisted models can be run on the same items", "humans are available for a preference subset on the top two", "the same items, prompts and scaffold are used for every finalist, with per-model prompt tuning only if every model gets it", "results are sliced by language and intent, not read as one average", "the tie rule is agreed in advance: if the paired CI includes 0 the models are tied and the choice goes to cost"]
   required_tools: [human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {human_pairwise_judgments: 100}
   produces: [paired_difference, human_preference_rate]
   gates: false
-  companion_checks: []
-  unlocks: []
+  companion_checks: [B1_paired_evaluation, C1_wilson_ci, E5_harder_set, F4_position_swap_consistency]
+  unlocks: [J3_cost_quality_pareto]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: high
@@ -73,27 +115,39 @@ J2_full_domain_eval:
   domain_scenario: >-
     **Insurance**: choosing the model for a claims-summary copilot
   rule_of_thumb: >-
-    paired comparison on the same items with CIs, plus 100 human preference
-    pairs for the top 2
-  source_ref: evals-situation-to-technique.md § J
+    paired comparison on the same 300-500 items with CIs, plus 100 human
+    preference pairs in both orders for the top 2; at n = 400 with a paired
+    design you can resolve differences of about 3 points
+  source_ref: J-choosing-a-model.md § J2
   extraction_notes: >-
-    "300–500 items" is a range and is NOT recorded in requires. The record
-    leans on B1 (paired evaluation) and B2 (pairwise preference) rather than
-    restating them; those edges are EL-117's. CLAUDE.md section 4 calls this
-    "own-data eval"
+    CLAUDE.md section 4 calls this "own-data eval". "300-500 items" is a range
+    and is NOT in requires; `{human_pairwise_judgments: 100}` is, from J:80's
+    "Run 100 human pairwise judgments (both orders) on the top two" - a single
+    count. All four companions are the row's own cross-references rather than
+    this stage's inferences: J:79 for the paired CIs (B1) and the Wilson CIs
+    (C1), J:78 "Include your hard set (E5)", and J:80's "(both orders)", which
+    is F4's position swap by another name. E3 is deliberately NOT a companion
+    although J:74 cites it - there it is the REASON the human check exists
+    ("the automated grader prefers something users don't, such as verbosity"),
+    and a rationale is not a thing to report alongside. J:71's "a validated
+    grader (Sections A and F)" points at two whole sections, which is too
+    vague to resolve to one id, so it stays here rather than becoming an edge.
+    unlocks names J3 from J:81 verbatim. The "about 3 points at n = 400"
+    resolution (J:74) is in rule_of_thumb: it is a stated property of the
+    design, not a bar on a result
 
 J3_cost_quality_pareto:
   section: J
   name: "Cost–quality Pareto frontier: pick the cheapest model within the CI of the best"
   type: procedure
   triggers_on_situation: [model_selection]
-  required_signals: ["a score and a rupee cost per 1,000 tasks exist for each candidate", "a CI on the best model's score is available"]
+  required_signals: ["a score and a rupee cost per 1,000 tasks exist for each candidate", "a CI on the best model's score is available", "the cost is the full cost: input and output tokens at real prompt lengths, retries and failed-run costs", "the critical slices are checked separately, because a model equivalent overall can fail a slice you cannot compromise on", "the choice is revisited quarterly, because prices drop and new models arrive"]
   required_tools: [cost_api]
   ladder_priority: null
-  requires: {}
+  requires: {paired_ci_available: true}
   produces: [pareto_frontier, selected_model]
   gates: false
-  companion_checks: []
+  companion_checks: [B1_paired_evaluation, H4_cost_per_success]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -107,19 +161,33 @@ J3_cost_quality_pareto:
     **E-commerce**: product-review summarisation across 2 crore reviews
   rule_of_thumb: >-
     plot score against ₹ per 1,000 tasks, and treat models inside the best
-    model's CI as equivalent
-  source_ref: evals-situation-to-technique.md § J
+    model's CI as equivalent; among equivalent models choose the cheapest -
+    if you can't show a quality difference, pay for the cheaper model
+  source_ref: J-choosing-a-model.md § J3
   extraction_notes: >-
-    The record depends on a CI it does not itself produce, which is C1's or
-    B1's job; the dependency is a requires or unlocks edge for EL-117
+    S12 flagged that this record depends on a CI it does not produce, and
+    `{paired_ci_available: true}` is the answer: a BOOLEAN gate, because the
+    whole technique is "inside the best model's CI" and without that interval
+    there is nothing to be inside. It is the fourth boolean of its kind after
+    E2, H2-H8 and I7, and it is what keeps J3 pending on a fresh comparison
+    instead of ranking two models on point estimates. Both companions are the
+    row's own lines: J:119 "Test equivalence with a paired CI" (B1) and J:111
+    "₹ per 1,000 tasks, or ₹ per *successful* task (H4)". H4 already names
+    this record in its unlocks, written by S16 from H's side (H:139), so the
+    pair is reciprocal - the only reciprocal cross-section pair in the
+    registry. The reciprocal B1 -> J3 edge is NOT written, because adding it
+    means editing S13's file to document an ordering that changes no plan;
+    proposed in S17-REPORT.md. J:120's critical-slice check has no record to
+    point at: "Slice the results" is 00-INDEX.md:37's fourth cross-cutting
+    principle and the only one of the five that no row codifies
 
 J4_same_harness:
   section: J
   name: Same benchmark version, same shots/CoT, same harness, or rerun it yourself
   type: procedure
   triggers_on_situation: [model_selection, external_leaderboard]
-  required_signals: ["the published setup (benchmark version, shot count, CoT) is discoverable", "the benchmark can be rerun locally if it is not"]
-  required_tools: [source_doc_read]
+  required_signals: ["the published setup (benchmark version, shot count, CoT) is discoverable", "the benchmark can be rerun locally if it is not", "the footnotes are read for shots, CoT, benchmark version or subset, and whether majority voting was used", "a comparison without matching conditions is treated as unknown - neither a win nor a loss", "the setup evaluated is the setup you will deploy: 0-shot with no CoT if that is what production does"]
+  required_tools: [source_doc_read, llm_api]
   ladder_priority: null
   requires: {}
   produces: [normalised_score]
@@ -138,26 +206,39 @@ J4_same_harness:
     **Legal**: comparing models on legal-reasoning benchmarks for a law-firm
     copilot
   rule_of_thumb: >-
-    normalise the evaluation setup before comparing
-  source_ref: evals-situation-to-technique.md § J
+    normalise the evaluation setup before comparing, or rerun every model
+    yourself on one harness with identical settings; 5-shot CoT against 0-shot
+    direct can move a score by 5-10 points, which is more than the difference
+    between the models
+  source_ref: J-choosing-a-model.md § J4
   extraction_notes: >-
     Typed `procedure` per the ticket, although the row reads as a constraint on
     comparison ("normalise the setup before comparing") in the same way B5
     does. B5 is the statistical half of the same worry - compute the CI from n
-    - and the two are not merged
+    - and the two are not merged. No companion and no unlocks: J:230 says a
+    matched comparison is "still just a shortlist signal", so this record feeds
+    the shortlist rather than ordering before or after another record, and the
+    statistics the row needs (n, CIs) are J5's concern, not this one's.
+    required_tools gains llm_api for J:154's "Rerun on one harness ... with
+    identical settings for every model". An evaluation harness itself has no
+    Tool member; test_runner is the nearest and was NOT used, because the Tool
+    enum's own test (decision EL-002) asks whether a record's requirement would
+    change if the delivery mechanism changed, and a benchmark harness is a
+    different capability from a unit-test runner. Raised in S17-REPORT.md
+    rather than resolved by stretching a member
 
 J5_replicate_vendor_claim:
   section: J
   name: Replicate on your own 100–200 item held-out set
   type: procedure
   triggers_on_situation: [model_selection, external_leaderboard]
-  required_signals: ["a held-out set of your own real data exists", "your own grader can score the vendor's model"]
-  required_tools: []
+  required_signals: ["a held-out set of your own real data exists and has never been shared with any vendor", "your own grader can score the vendor's model", "the set is stratified by the difficulty you actually see: clean vs messy, language, format", "acceptance criteria measured on your set go into the contract", "a fresh sample is re-tested after onboarding"]
+  required_tools: [llm_api]
   ladder_priority: null
   requires: {}
   produces: [replicated_score]
   gates: false
-  companion_checks: []
+  companion_checks: [C1_wilson_ci, E7_contamination_check]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -170,10 +251,22 @@ J5_replicate_vendor_claim:
   domain_scenario: >-
     **Logistics**: a vendor pitching GST e-way bill and invoice extraction
   rule_of_thumb: >-
-    run the vendor's model on your real data with your grader
-  source_ref: evals-situation-to-technique.md § J
+    run the vendor's model on your own private 100-200 item held-out set with
+    your grader, and report Wilson CIs by slice; the worst slice decides, not
+    the average
+  source_ref: J-choosing-a-model.md § J5
   extraction_notes: >-
-    "100–200 item held-out set" is a range and is NOT recorded in requires,
-    although it is the row's own readiness condition. The anti_pattern names
-    omitted n and CIs, which is exactly what C1 and B5 supply; edges are
-    EL-117's
+    "100-200 item held-out set" is a range and is NOT recorded in requires,
+    although it is the row's own readiness condition - the same tension S12
+    noted, and the range policy still wins, so a reviewer wanting a floor here
+    has to rule on 100. The anti_pattern names omitted n and CIs, which is
+    exactly what C1 supplies, and J:188 states it: "report Wilson CIs by
+    slice". The second companion is the sharper find: J:190's "Re-test on a
+    fresh sample after onboarding to catch any tuning to your data during the
+    pilot" is E7's contamination check applied to a vendor, so the edge is
+    written rather than the idea restated. required_tools gains llm_api -
+    replicating a claim means running the vendor's model - and NOT human_labels,
+    because J:188 says "your own grader", which may be any rung of A's ladder.
+    The banking scenario's "worst slice, not the average" decision rule is in
+    rule_of_thumb; it is the per-slice form of 00-INDEX.md:37's fourth
+    principle, which has no record of its own

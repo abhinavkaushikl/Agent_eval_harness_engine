@@ -1,0 +1,31 @@
+# Fixture 15 - the score jumped. What the registry offers is a per-item diff.
+#
+# E1_per_item_diff is E's first action for this symptom
+# (E-when-a-number-looks-wrong.md:11, the symptom box: "Score jumped suddenly
+# -> E1"), and it needs two runs to have something to diff, which is its
+# recorded requires. E4_aa_baseline is forced in as a companion and is itself
+# pending on three runs (E:140, recorded by S15 as a flagged interpretation),
+# so the plan says "diff these two runs, and I cannot yet tell you whether the
+# jump is noise".
+#
+# WHAT THIS FIXTURE CANNOT ASSERT: the ticket calls this a "reward-hacking
+# investigation", and THERE IS NO REWARD-HACKING RECORD in any of the 73.
+# ARCHITECTURE.md section 5.1 names the strongest signal for it ("just make the
+# test pass" in a transcript, which it says should "route to E-section
+# diagnostics") and AGENT.md section 3.8 lists the detector as a component, but
+# no row of the master lookup is it. The fixture therefore asserts the
+# diagnostics that DO exist and the gap is reported: S16-REPORT.md section 8
+# and S19-REPORT.md section 4.
+name: score_jumped_investigation
+given:
+  situations: [score_jumped]
+  available_tools: []
+  evidence: {runs: 2}
+expect:
+  ready: [C1_wilson_ci, E1_per_item_diff]   # statistic, then diagnostic
+  pending:
+    E4_aa_baseline: "needs runs: 3, have 2"
+  unavailable: {}
+  companions:
+    E1_per_item_diff: [E4_aa_baseline]
+  prohibited: []

@@ -1,24 +1,55 @@
 # Section I - PRODUCTION. Nine records, one per master-lookup row, in the deep
 # dive's numbering (I1-I9, from '^# I[0-9]+ ' headers).
 #
+# S17 (EL-117) enriched this file from I-production.md. Citations in
+# extraction_notes are `I:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched - they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
+#
 # GATES MATTER HERE, so this file records what the source states and marks
 # every row where it states nothing. The schema types gates as `Gate`, with
 # members absolute / statistical / false and NO null member, so "the source
 # does not state a gate" cannot be written as null. Where the source is silent
 # the value is `false` - never blocks, reported only - and the record says so
-# in extraction_notes. The four silent rows are I3, I5, I6 and I8.
+# in extraction_notes. After S17 the silent rows are I3, I5 and I8: I6 MOVED
+# to `absolute`, because the deep dive states its guardrails as thresholds
+# that roll a release back (I:207, I:221). That overturns S12's call and is
+# flagged in S17-REPORT.md section 6.
 #
-# Stated by the source:
-#   I1 absolute    "the merge is blocked on an aggregate drop or any must-pass
-#                   failure" - and a must-pass golden set is section 6's own
-#                   example of an absolute gate
-#   I2 statistical "evals fail only when the 3-run mean falls below baseline
-#                   minus tolerance"
-#   I4 statistical "alert when the result falls > 3 SD below the 30-day mean"
-#   I7 statistical "Fix the primary metric, n and duration *before* launch,
-#                   then read it once"
-#   I9 absolute    "with rollback triggers", "auto-rollback if escalation
-#                   rises > 1 pt"
+# Stated by the source, with the deep-dive line:
+#   I1 absolute    I:33  "The merge is blocked if the aggregate drops beyond a
+#                         tolerance **or any must-pass item fails**"
+#   I2 statistical I:68  "fail only when the 3-run mean drops below baseline
+#                         minus a tolerance band" - BUT SEE BELOW
+#   I4 statistical I:145 "Alert at more than 3 SD below the 30-day mean"
+#   I6 absolute    I:207 "Define the guardrails with thresholds"; I:221 "is
+#                         now a hard guardrail with a ₹ cost attached"
+#   I7 statistical I:240 pre-registration, I:244 "Read the result once"
+#   I9 absolute    I:310 "Define rollback triggers before starting"
+#
+# I2 GATES TWO WAYS AND THE SCHEMA HOLDS ONE VALUE. I:68 says the
+# deterministic layer "must pass 100%" - an absolute gate - and the same line says the
+# statistical layer fails only on a multi-run mean - a statistical one. The
+# record IS that split, and `gates: Gate` is a single value. `statistical` is
+# kept, because it matches the row's name and anti_pattern, and the loss is
+# real: a planner reading this record alone cannot tell that a schema failure
+# must block outright. A5_schema_field_scoring carries `gates: absolute` and
+# is the nearest record that does say so. Reported as finding F12.
+#
+# THE PRODUCTION FLYWHEEL (I:9-21) IS A CYCLE, and `unlocks` must stay
+# acyclic. The corpus draws: eval set from logs (I8) -> CI gate (I1, I2) ->
+# shadow/canary (I9) -> live sampling (I5) + daily canary (I4) -> error
+# analysis (I3) -> back to I8. Five of those six arrows are written here:
+#   I5 -> I3   I:178 "Send judged failures straight into error analysis (I3)"
+#   I3 -> I8   I:110 "Add every analysed failure to the eval set (I8). This is
+#                      how the flywheel turns"
+#   I8 -> I1, I2   the flywheel box's own arrow (I:13-17)
+#   I1 -> I9, I2 -> I9   the decision flow (I:336-342): CI before rollout
+# The SIXTH, I9 -> I5 ("Once live: ... 1-2% judged sample"), is the arrow that
+# closes the loop, and writing it would make `unlocks` cyclic. It is dropped
+# deliberately rather than at random: it is the least gate-like of the six -
+# nothing has to be unlocked before you may sample live traffic - and it is
+# drawn only in the box, never in a record's prose. Reported as finding F13.
 #
 # The lifecycle family maps almost one-to-one onto I: eight distinct members
 # for nine rows, with I1 and I9 sharing shipping_change.
@@ -28,14 +59,14 @@ I1_ci_regression_gate:
   name: "CI regression gate: a fixed suite + a must-pass golden set"
   type: procedure
   triggers_on_situation: [shipping_change]
-  required_signals: ["a fixed eval suite runs on every PR", "a must-pass golden set is designated", "an aggregate drop tolerance is agreed"]
+  required_signals: ["a fixed eval suite runs on every PR", "a must-pass golden set is designated", "an aggregate drop tolerance is agreed", "the must-pass set holds the cases where one failure is an incident: regulatory statements, amounts, safety refusals", "the baseline is updated only when a merge is accepted, never to make a failing gate pass"]
   required_tools: [test_runner, repo_read]
   ladder_priority: null
   requires: {}
   produces: [suite_score, must_pass_failures]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [E1_per_item_diff, E4_aa_baseline]
+  unlocks: [I9_shadow_then_canary]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -49,26 +80,37 @@ I1_ci_regression_gate:
     10.5% for 36 months = ₹16,251/month"
   rule_of_thumb: >-
     every PR runs the eval, and the merge is blocked on an aggregate drop or
-    any must-pass failure
-  source_ref: evals-situation-to-technique.md § I
+    any must-pass failure; set the aggregate tolerance from the A/A noise band,
+    for example "block if more than 2 points below baseline"
+  source_ref: I-production.md § I1
   extraction_notes: >-
-    gates STATED by the source: the row says the merge is blocked. The "> 2
-    pts" tolerance in the Example is this scenario's agreed number, not the
-    technique's, so requires stays empty
+    gates STATED, I:33: "the merge is blocked if the aggregate drops beyond a
+    tolerance **or any must-pass item fails**". requires stays EMPTY and that
+    is the point of the record: the must-pass half fires on the first run,
+    because one failure there is an incident whatever the aggregate says. Both
+    companions are the row's own cross-references - I:41 takes the tolerance
+    from E4's A/A noise band, and I:42 "Post the diff in the PR: newly failing
+    items, newly passing items" is E1 in so many words. E4 is a companion and
+    NOT a requires gate on purpose: gating the whole record on an A/A baseline
+    would hold back the must-pass check, which needs no tolerance at all.
+    Every figure in How-to is a range or an example - 200-300 suite items and
+    20-50 must-pass items (I:39, I:40), and "more than 2 points" is prefaced
+    "for example" (I:41) - so none is in requires. unlocks names I9 from the
+    decision flow (I:336-342), where CI comes before any rollout
 
 I2_split_deterministic_statistical:
   section: I
   name: Split deterministic tests from statistical evals; gate evals on a multi-run mean against a tolerance band
   type: procedure
   triggers_on_situation: [ci_flaking]
-  required_signals: ["responses can be cached or run at temperature 0 for the deterministic half", "the eval can be run several times per gate", "a baseline and a tolerance band exist"]
+  required_signals: ["responses can be cached or run at temperature 0 for the deterministic half", "the eval can be run several times per gate", "a baseline and a tolerance band exist", "each check is classified as deterministic (a parser, a schema, a regex) or statistical (a quality score)", "the gate's own false-fail rate is tracked"]
   required_tools: [test_runner]
   ladder_priority: null
-  requires: {}
+  requires: {runs: 3}
   produces: [false_fail_rate, multi_run_mean]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [E4_aa_baseline]
+  unlocks: [I9_shadow_then_canary]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -80,29 +122,39 @@ I2_split_deterministic_statistical:
   domain_scenario: >-
     **Telecom**: a CI pipeline for a 12-language support bot
   rule_of_thumb: >-
-    unit tests use cached or temperature-0 responses, and evals fail only when
-    the 3-run mean falls below baseline minus tolerance
-  source_ref: evals-situation-to-technique.md § I
+    unit tests use cached or temperature-0 responses and must pass 100%, and
+    evals run 3× and fail only when the 3-run mean falls below baseline minus
+    tolerance, with the tolerance at about 2× the A/A SD; above a 5% false-fail
+    rate, widen the tolerance or add runs
+  source_ref: I-production.md § I2
   extraction_notes: >-
-    gates STATED: "evals fail only when the 3-run mean falls below baseline
-    minus tolerance" is a statistical gate in so many words. The ±2.5 pt band
-    and the 3-run count are stated only inside this scenario's Example, so
-    neither is recorded in requires - CLAUDE.md section 6 lists the ±2.5 pt
-    tolerance as a corpus float, and EL-117 should copy it from the deep dive
+    THE RECORD WHERE `gates` RUNS OUT OF ROOM. I:68 says the deterministic
+    layer "must pass 100%" (absolute) and the same line says the statistical layer
+    fails only on a multi-run mean (statistical). This record IS that split
+    and `gates` holds one value; `statistical` is kept to match the row's name
+    and anti_pattern, and the absolute half is lost to the planner. See the
+    file header and finding F12. `{runs: 3}` is I:76 verbatim, "Statistical
+    checks run 3×" - a single count, so it is recorded, which S12 had left
+    empty pending this stage. The ±2.5 pt tolerance is the telecom scenario's
+    agreed band and the "about 2× the A/A SD" rule (I:76) is the general form,
+    so the band itself is not in requires; E4 is the companion that supplies
+    the SD. I:77's "Above 5%, widen the tolerance" is an UPPER bound on a
+    produced metric, which requires cannot express either way (S13 findings F2
+    and F3), so it is verbatim in rule_of_thumb
 
 I3_error_analysis:
   section: I
   name: "Error analysis: sample 100 failures, open-code them, count categories"
   type: procedure
   triggers_on_situation: [debugging_regression]
-  required_signals: ["failures are retrievable in bulk", "root causes can be tagged inductively"]
+  required_signals: ["failures are retrievable in bulk", "root causes can be tagged inductively", "failures are sampled at random, not taken from the ones people escalated", "the fix effort per category can be estimated, so the order is frequency ÷ effort"]
   required_tools: [production_logs]
   ladder_priority: null
-  requires: {}
+  requires: {failures: 100}
   produces: [failure_categories, category_counts]
   gates: false
   companion_checks: []
-  unlocks: []
+  unlocks: [I8_eval_set_from_logs]
   conflicts_with: []
   analysis_cost: high
   capture_cost: low
@@ -114,25 +166,36 @@ I3_error_analysis:
   domain_scenario: >-
     **Insurance**: renewal-reminder generator
   rule_of_thumb: >-
-    read failures, tag root causes, and sort by frequency
-  source_ref: evals-situation-to-technique.md § I
+    read failures, tag root causes, and sort by frequency; sample about 100 at
+    random from the last 2-4 weeks, cluster into 5-10 categories, and repeat
+    monthly
+  source_ref: I-production.md § I3
   extraction_notes: >-
     gates NOT STATED by the source. Error analysis produces an ordering of
     causes and blocks nothing, so the value would be null if Gate had a null
-    member; recorded as `false` and reported
+    member; recorded as `false` and reported. `{failures: 100}` is the row's
+    own title (I:97) and "about 100 real failures" (I:100) - a single figure,
+    not a range, and the ticket asks for it verbatim. The "about" is noted: it
+    is the one number in I recorded from a hedged statement, and if a reviewer
+    reads "about 100" as approximate rather than as a floor, this is the entry
+    to clear. "2-4 weeks" and "5-10 categories" are ranges and stay in
+    rule_of_thumb. unlocks names I8 from I:110 verbatim, "Add every analysed
+    failure to the eval set (I8). This is how the flywheel turns" - the one
+    arrow of the flywheel the corpus states in a record's own prose. This is
+    the production form of H7's trajectory taxonomy; both are kept
 
 I4_pinned_versions_canary:
   section: I
   name: Pinned model versions + a daily canary eval with drift alerts
   type: procedure
   triggers_on_situation: [detecting_drift]
-  required_signals: ["model versions can be pinned rather than aliased", "a fixed canary set can run on a schedule", "a rolling baseline of past results exists"]
+  required_signals: ["model versions can be pinned rather than aliased", "a fixed canary set can run on a schedule", "a rolling baseline of past results exists", "the judge is pinned to a dated version too, not just the generator", "the canary is also run against the provider's \"latest\" alias, as advance warning of a change"]
   required_tools: [llm_api, production_logs]
   ladder_priority: null
-  requires: {}
+  requires: {baseline_days: 30}
   produces: [canary_score, drift_alert]
   gates: statistical
-  companion_checks: []
+  companion_checks: [I1_ci_regression_gate]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -147,27 +210,33 @@ I4_pinned_versions_canary:
     **E-commerce**: catalogue enrichment that depends on strict JSON output
   rule_of_thumb: >-
     run a fixed 100-item set daily and alert when the result falls > 3 SD below
-    the 30-day mean
-  source_ref: evals-situation-to-technique.md § I
+    the 30-day mean; 2 SD fires too often and 4 SD misses real shifts
+  source_ref: I-production.md § I4
   extraction_notes: >-
-    gates STATED: "> 3 SD below the 30-day mean" is a statistical trigger. The
-    3 SD, 30-day and 100-item figures sit in rule_of_thumb verbatim rather than
-    requires, because they parameterise the alert, not the readiness of the
-    record
+    gates STATED, I:145: "> 3 SD below the 30-day mean" is a statistical
+    trigger. THE HISTORY REQUIREMENT the ticket asks for is `{baseline_days:
+    30}`, read straight off that same line: the alert is defined against a
+    30-day mean, so on a fresh install there is no baseline to be 3 SD below
+    and the record is honestly pending. The 3 SD and the 100 items stay in
+    rule_of_thumb, because they parameterise the alert rather than gate it -
+    and I:145 states the alternatives it rejects, 2 SD and 4 SD, which is why
+    the whole clause is carried verbatim. I1 is a companion from I:142, "Treat
+    upgrades as PRs through the CI gate (I1)": the canary detects the drift and
+    the CI gate is where a version change is allowed to land
 
 I5_sampled_online_eval:
   section: I
   name: "Sampled online eval: reference-free judge + implicit signals"
   type: procedure
   triggers_on_situation: [scoring_live_traffic]
-  required_signals: ["a random sample of live traffic can be routed to a judge", "implicit signals such as thumbs, escalation, re-ask and abandonment are recorded on all traffic"]
+  required_signals: ["a random sample of live traffic can be routed to a judge", "implicit signals such as thumbs, escalation, re-ask and abandonment are recorded on all traffic", "the implicit signals have stated definitions: re-ask means the same intent within 2 turns, abandonment means no reply within 10 minutes after a bot turn", "the judge was validated on production-like data, not only on the offline set", "the judge's scores are correlated with the implicit signals weekly"]
   required_tools: [llm_api, production_logs]
   ladder_priority: null
   requires: {}
   produces: [sampled_judge_score, escalation_rate, reask_rate, abandonment_rate]
   gates: false
-  companion_checks: []
-  unlocks: []
+  companion_checks: [F1_gold_label_validation]
+  unlocks: [I3_error_analysis]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: high
@@ -179,27 +248,35 @@ I5_sampled_online_eval:
   domain_scenario: >-
     **Telecom**: a WhatsApp support bot for a mobile operator
   rule_of_thumb: >-
-    judge 1–2% of traffic, and track thumbs, escalation, re-ask and abandonment
-    rates on 100%
-  source_ref: evals-situation-to-technique.md § I
+    judge a uniform random 1-2% of traffic, and track thumbs, escalation,
+    re-ask and abandonment rates on 100%
+  source_ref: I-production.md § I5
   extraction_notes: >-
     gates NOT STATED. The row says the escalation rate is "tracked as a
     guardrail", which is monitoring, not a stated block; recorded as `false`
-    and reported. A7 in section A is the same tiered-scoring idea seen from the
-    grading side, and the two are not merged
+    and reported. The hard figure in the row is 1-2% (I:174), a range, so
+    requires is empty - and that is right: a sampled online eval is runnable
+    from the first day of traffic. The two implicit-signal definitions (I:176)
+    ARE exact numbers but define a signal rather than a threshold, so they are
+    required_signals, verbatim. F1 is the companion from I:175, "Use a judge
+    validated on production-like data (Section F)". unlocks names I3 from
+    I:178 verbatim. A7 in section A is the same tiered-scoring idea seen from
+    the grading side and I:168 points at it explicitly; the two are not merged
+    and no edge is written, because a pointer to an architecture is not a
+    statement that both must be reported
 
 I6_business_metric_guardrails:
   section: I
   name: Business outcome metric tied to the eval (containment, resolution, CSAT) + guardrails
   type: metric
   triggers_on_situation: [measuring_impact]
-  required_signals: ["one primary KPI with a rupee value is agreed", "harm metrics are tracked alongside it"]
+  required_signals: ["one primary KPI with a rupee value is agreed", "harm metrics are tracked alongside it", "each guardrail has a stated threshold, for example \"CSAT must not fall by more than 0.1\"", "the KPI is reported in rupees at leadership level and in eval points at team level"]
   required_tools: [production_logs]
   ladder_priority: null
   requires: {}
   produces: [primary_kpi, guardrail_metrics]
-  gates: false
-  companion_checks: []
+  gates: absolute
+  companion_checks: [E2_metric_outcome_check]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -212,25 +289,38 @@ I6_business_metric_guardrails:
   domain_scenario: >-
     **Banking**: a credit-card servicing bot
   rule_of_thumb: >-
-    pick one primary KPI with a ₹ value and watch for harm metrics alongside it
-  source_ref: evals-situation-to-technique.md § I
+    pick one primary KPI with a ₹ value and 2-3 guardrail metrics that must not
+    get worse; price the KPI as containment × volume × cost of a
+    human-handled contact
+  source_ref: I-production.md § I6
   extraction_notes: >-
-    gates NOT STATED, recorded as `false` and reported. The guardrails are in
-    produces because the row refuses the primary KPI alone, which is the same
-    never-alone rule as D6, G6 and H6
+    gates CHANGED from `false` to `absolute` by this stage, and it is the one
+    judgement S17 overturns. S12 read the lookup row as stating no gate. The
+    deep dive states one twice: I:207 "Define the guardrails **with
+    thresholds**", and I:221, where a breach rolled a release back within a
+    week and "Chargeback rate is now a hard guardrail with a ₹ cost attached".
+    A metric whose purpose is "must not get worse, or revert" blocks on any
+    failure, which is what absolute means in CLAUDE.md section 6. The
+    threshold itself is per-deployment and is NOT invented here: "CSAT must not
+    fall by more than 0.1" is carried as the source's own example in a
+    required_signal. The guardrails stay in produces because the row refuses
+    the primary KPI alone - the same never-alone rule as D6, G6 and H6, and the
+    same missing field (finding F9). E2 is the companion from I:208, "Check the
+    offline-to-online relationship across releases (E2). If offline gains don't
+    predict KPI gains, fix the eval"
 
 I7_pre_registered_ab:
   section: I
   name: Pre-registered online A/B test
   type: procedure
   triggers_on_situation: [ab_testing]
-  required_signals: ["the primary metric, n and duration are fixed before launch", "users can be randomised into arms", "the result is read once"]
+  required_signals: ["the primary metric, n and duration are fixed before launch", "users can be randomised into arms", "the result is read once", "the duration is whole weeks, so weekday and weekend patterns are both covered", "the traffic split is checked for sample-ratio mismatch", "every metric other than the pre-registered primary is treated as exploratory"]
   required_tools: [production_logs]
   ladder_priority: null
-  requires: {}
+  requires: {pre_registration_filed: true}
   produces: [arm_difference, primary_metric_p_value]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C2_power_analysis, C5_multiple_comparisons]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -243,27 +333,37 @@ I7_pre_registered_ab:
   domain_scenario: >-
     **E-commerce**: a checkout assistant nudging COD users toward UPI
   rule_of_thumb: >-
-    fix the primary metric, n and duration *before* launch, then read it once
-  source_ref: evals-situation-to-technique.md § I
+    fix the primary metric, n and duration *before* launch, then read it once;
+    n per arm ≈ 16·p(1−p)/δ², so detecting 40% → 41% needs ≈ 38,000 sessions
+    per arm
+  source_ref: I-production.md § I7
   extraction_notes: >-
     gates STATED: pre-registration plus a single read is a statistical gate.
-    AGENT.md section 3.5 lists A/B by user as section I content; the 38,000
-    figure is this scenario's power calculation, so C2 is the general record
-    and no edge is written here
+    `{pre_registration_filed: true}` is a BOOLEAN requirement and is the
+    record's whole thesis - an A/B read without a pre-registered primary
+    metric is the false win I:237 describes, where peeking takes the
+    false-positive rate "from 5% to 20-30%". It follows the same convention as
+    E2, H2-H8 and J3: a world fact the readiness check can fail on, named as a
+    predicate. Both companions are the row's own statistics: I:241's n per arm
+    ≈ 16·p(1−p)/δ² is C2's formula verbatim, and I:244's "Every metric other
+    than the primary one is exploratory" - with the insurance scenario's 14
+    metrics producing three p < 0.05 "wins" by chance - is C5. The 38,000
+    figure is the e-commerce scenario's own power calculation and is carried
+    in rule_of_thumb beside the formula that produces it, never as a threshold
 
 I8_eval_set_from_logs:
   section: I
   name: Stratified sample from production logs + past failures + adversarial items, with a held-out split
   type: procedure
   triggers_on_situation: [building_eval_set]
-  required_signals: ["production traffic can be sliced by intent, language and difficulty", "past incidents are retrievable", "a held-out split can be reserved and never tuned on"]
+  required_signals: ["production traffic can be sliced by intent, language and difficulty", "past incidents are retrievable", "a held-out split can be reserved and never tuned on", "small but critical intents are over-sampled rather than matched to traffic", "PII is scrubbed before an item enters the set", "items every candidate passes are retired on refresh"]
   required_tools: [production_logs]
   ladder_priority: null
   requires: {}
   produces: [eval_set, held_out_split]
   gates: false
   companion_checks: []
-  unlocks: []
+  unlocks: [I1_ci_regression_gate, I2_split_deterministic_statistical]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: medium
@@ -277,25 +377,36 @@ I8_eval_set_from_logs:
     par mila nahi")
   rule_of_thumb: >-
     sample real traffic by intent, language and difficulty, then add every past
-    incident and edge cases
-  source_ref: evals-situation-to-technique.md § I
+    incident and 10-20% adversarial items; hold out 20% that nobody tunes
+    against, and refresh quarterly
+  source_ref: I-production.md § I8
   extraction_notes: >-
     gates NOT STATED, recorded as `false` and reported. This is the remedy E5
-    prescribes when every candidate saturates, and the failures-as-tests
-    flywheel CLAUDE.md section 6 calls a procedure; the edge to E5 is EL-117's
+    prescribes when every candidate saturates - E5 already unlocks it - and it
+    is the failures-as-tests flywheel, which is 00-INDEX.md:38's fifth
+    cross-cutting principle and the only one of the five with a record of its
+    own besides A1, C1 and B1. unlocks names I1 and I2 from the flywheel box's
+    own arrow (I:13-17), where the eval set feeds the CI gate; the arrow that
+    closes the loop, I9 -> I5, is the one `unlocks` cannot hold (see the file
+    header and finding F13). The "hold out 20%" of I:275 is a single figure but
+    is a fraction of the set rather than a count of evidence, and a requires
+    key reading `{held_out_fraction: 20}` would be a percentage in a field
+    every other record fills with counts, so it is carried verbatim in
+    rule_of_thumb and as a required_signal instead. "10-20% adversarial" is a
+    range
 
 I9_shadow_then_canary:
   section: I
   name: Shadow mode → staged canary with auto-rollback
   type: procedure
   triggers_on_situation: [shipping_change]
-  required_signals: ["the new model can run silently on live traffic", "traffic share can be ramped in stages", "rollback triggers are defined before the ramp"]
+  required_signals: ["the new model can run silently on live traffic", "traffic share can be ramped in stages", "rollback triggers are defined before the ramp", "the disagreements with the current version are read, not only counted", "each stage is held 24-48 hours, long enough to cover daily traffic patterns", "the rollback is automated and does not depend on someone being awake"]
   required_tools: [production_logs]
   ladder_priority: null
   requires: {}
   produces: [shadow_disagreement_rate, canary_rollback_trigger]
   gates: absolute
-  companion_checks: []
+  companion_checks: [E1_per_item_diff]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -309,11 +420,22 @@ I9_shadow_then_canary:
   domain_scenario: >-
     **Healthcare**: an appointment-booking bot for a multi-city hospital chain
   rule_of_thumb: >-
-    run the new model silently on live traffic, then ramp 1% → 10% → 50% →
-    100% with rollback triggers
-  source_ref: evals-situation-to-technique.md § I
+    run the new model silently on live traffic for 3-7 days, then ramp 1% →
+    10% → 50% → 100% with rollback triggers defined before starting - for
+    example escalation +1 point, error rate above 0.5%, any must-pass canary
+    item failing
+  source_ref: I-production.md § I9
   extraction_notes: >-
-    gates STATED: auto-rollback on a stated trigger is an absolute gate.
-    Shares shipping_change with I1, which is correct - a CI gate and a staged
-    rollout are both things you do when shipping - and is the only repeated
-    lifecycle member in I
+    gates STATED, I:310: "Define rollback triggers before starting" makes this
+    an absolute gate - a trigger fires or it does not. Shares shipping_change
+    with I1, which is correct - a CI gate and a staged rollout are both things
+    you do when shipping - and is the only repeated lifecycle member in I.
+    E1 is the companion from I:308-309: the shadow disagreement set is a
+    per-item diff between two versions, and the row insists on reading it, not
+    just counting it. requires is EMPTY although the decision flow puts CI
+    first (I:336-342): that ordering is carried as I1 -> I9 and I2 -> I9 in
+    unlocks and is deliberately NOT mirrored into a boolean, following S16's
+    rule that only a precondition the corpus states as "build it first" earns
+    a gate. The alternative - `{ci_gate_passed: true}` - is stated in
+    S17-REPORT.md for a ruling. Every figure here is a range (3-7 days, 24-48
+    hours) or prefaced "for example" (the triggers), so none is in requires

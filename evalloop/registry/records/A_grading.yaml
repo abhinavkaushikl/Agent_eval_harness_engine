@@ -1,35 +1,62 @@
 # Section A - CHOOSING HOW TO GRADE. Seven records, one per master-lookup row,
 # in the deep dive's own numbering (A1-A7, from '^# A[0-9]+ ' headers).
 #
-# EL-110 is skeleton extraction from evals-situation-to-technique.md ONLY. The
-# deep dives were read for id numbering and nothing else, so three classes of
-# field are deliberately thin here and belong to EL-113:
-#   - requires: {} everywhere. The lookup states no readiness thresholds.
-#   - companion_checks / unlocks / conflicts_with: [] everywhere. The lookup has
-#     no column for them; the edges are stated in the deep dives.
-#   - ladder_priority: null everywhere, per the ticket. The ladder is EL-113's.
+# S13 (EL-113) enriched this file from A-choosing-how-to-grade.md. Citations in
+# extraction_notes are `A:<line>` against that file. What changed from the
+# skeleton: source_ref now names the deep-dive subsection; ladder_priority is
+# assigned; requires, companion_checks, unlocks and conflicts_with are filled
+# where the deep dive states them; rule_of_thumb carries the deep dive's
+# verbatim formulas. anti_pattern, worked_example and domain_scenario are
+# untouched -- they are the master lookup's columns and tests/test_records.py
+# diffs them against it.
 #
-# gates, analysis_cost and capture_cost have no lookup column and no null
-# option in the schema, so they are derived, not copied: gates is `absolute`
-# where the output is a pass/fail verdict that can block on its own,
-# `statistical` where it is an inference that blocks only on clearing a bar,
-# and `false` where the record is an operating posture rather than a verdict.
-# Reported as interpretation for EL-113 to confirm against the deep dives.
+# THE LADDER (A:11-18). Five rungs plus a wrapper, per EL-004:
+#   1 execution    A1   A:11 "It runs (code, SQL, API call)"        ₹0, deterministic
+#   2 end-state    A2   A:12 "It changes a system (agent action)"   ₹0, deterministic
+#   3 deterministic A3  A:13 "It states a short fact"               ₹0, deterministic
+#   3 deterministic A5  A:14 "It fills a structure (JSON, form)"    ₹0, deterministic
+#   4 judge        A4   A:15 "It's open-ended text"                 ₹, some variance
+#   5 human        A6   A:16 "It's high-stakes and final"           ₹₹₹, slow, gold
+#   - wrapper      A7   A:18 "wraps all of the above"               ladder_priority: null
+#
+# A3 AND A5 SHARE RUNG 3. The line that decided it is the ladder box's
+# cost/variance column: A:13 and A:14 carry the *identical* annotation
+# "₹0, deterministic", which is the ladder's own tie marker. Nothing in the
+# source orders them against each other, and nothing has to: the decision flow
+# reaches them from mutually exclusive branches (A:299 "Is it a short fact with
+# one right answer?" vs A:304 "Is it structured output (JSON, form,
+# extraction)?"), so no artifact is ever a candidate for both. EL-004's own
+# audit row reads them as one rung too: "deterministic | A | A:13 A3 normalised
+# exact match; A:14 A5 schema + field-level, both '₹0, deterministic'".
+#
+# EXECUTION BEATS JUDGING is encoded as four conflicts_with edges into A4, from
+# A1, A2, A3 and A5. Each carries its own source line in extraction_notes. The
+# direction is one-way, as CLAUDE.md section 6 defines the field ("record ids
+# this replaces/invalidates"): the deterministic grader replaces the judge, and
+# a judge never invalidates execution, so A4 lists none of them back.
+#
+# gates was derived in S10 and is now CONFIRMED against the deep dives rather
+# than re-derived: A1 absolute (A:51 "Execution became the gating metric"), A2
+# absolute (A:77 "a mismatch rate above 2% blocks launch"), A5 absolute (A:186
+# "must-be-right fields ... that gate the release by themselves"), A6 absolute
+# (A:229 "Launch was held"), A4 statistical (A:146 "κ ≥ 0.8 before it gates a
+# release"), A7 false (an operating posture, no verdict). analysis_cost and
+# capture_cost are unchanged; the deep dives contradict none of them.
 
 A1_execution_based:
   section: A
   name: Execution-based grading
   type: grader
   triggers_on_situation: [code_generation, sql_generation, api_endpoint]
-  required_signals: ["the output is runnable code, SQL or an API call", "a sandbox, test DB, unit-test suite or mock API exists to run it against"]
+  required_signals: ["the output is runnable code, SQL or an API call", "a sandbox, test DB, unit-test suite or mock API exists to run it against", "the grading data is a frozen snapshot or fixture set, never live data", "the fixtures seed boundary rows that make plausible wrong answers return different results"]
   required_tools: [sandbox, test_runner]
-  ladder_priority: null
+  ladder_priority: 1
   requires: {}
   produces: [execution_match]
   gates: absolute
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
-  conflicts_with: []
+  conflicts_with: [A4_judge_binary_criteria]
   analysis_cost: low
   capture_cost: medium
   anti_pattern: >-
@@ -41,26 +68,41 @@ A1_execution_based:
   domain_scenario: >-
     **Fintech**: NL-to-SQL over a UPI transaction warehouse. For "total refunds
     above ₹5,000 in Q2", compare result sets on a frozen snapshot
-  rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
+  rule_of_thumb: >-
+    if a line of code can check it, a line of code should check it
+  source_ref: A-choosing-how-to-grade.md § A1
   extraction_notes: >-
     The Situation cell is one class of artifact ("code / SQL / an API call")
-    and maps to three members: code_generation, sql_generation, api_endpoint
+    and maps to three members: code_generation, sql_generation, api_endpoint.
+    Ladder rung 1 from A:11. conflicts_with A4 is the execution-beats-judging
+    edge, from three lines: A:54 "Grading runnable output by its text ... or
+    asking a judge 'is this code correct?'. A judge reads the code. It doesn't
+    run it."; A:166, A4's own "When NOT to use it: When code could check the
+    criterion"; and 00-INDEX.md:34, cross-cutting principle 1, "If you can
+    execute the output or check it against the real world, do that instead of
+    judging it ... A judge is the fallback." rule_of_thumb is section A's own
+    (A:21), not A1's, and markdown emphasis markers are stripped. THREE
+    NUMBERS FROM THIS RECORD HAVE NO FIELD: the fixture-discrimination bar
+    A:38 "If the mutant still passes more than 5% of the time, the fixtures
+    aren't discriminating enough", and the comparator settings A:35 "a float
+    tolerance of 1e-6" and A:37 "a 10-second timeout and a row cap". None is a
+    readiness threshold, so none belongs in requires; all three are raised as
+    schema findings in the S13 report
 
 A2_end_state_verification:
   section: A
   name: End-state verification
   type: grader
   triggers_on_situation: [agent_action]
-  required_signals: ["the agent acted on a real system of record", "post-conditions are stateable as a query or assertion"]
-  required_tools: [db_connection]
-  ladder_priority: null
+  required_signals: ["the agent acted on a real system of record", "post-conditions are stateable as a query or assertion", "the environment can be restored to a snapshot before every run", "the pre-run state is kept, so the whole touched record can be diffed for collateral change"]
+  required_tools: [db_connection, snapshot_restore]
+  ladder_priority: 2
   requires: {}
   produces: [end_state_pass_rate]
   gates: absolute
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
-  conflicts_with: []
+  conflicts_with: [A4_judge_binary_criteria]
   analysis_cost: low
   capture_cost: medium
   anti_pattern: >-
@@ -73,27 +115,38 @@ A2_end_state_verification:
     **Insurance**: the policy-servicing agent says "nominee updated". Read the
     nominee field in the policy admin system
   rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
+  source_ref: A-choosing-how-to-grade.md § A2
   extraction_notes: >-
     The row names three ways to read the end state (DB row, API GET, file on
     disk); only db_connection exists in the Tool enum, so the API and
     filesystem cases are carried in required_signals instead of inventing
-    members. Flagged for EL-113
+    members. Ladder rung 2 from A:12. snapshot_restore added from A:75, step 3
+    "Reset per run. Restore the environment snapshot before every task".
+    conflicts_with A4 is the same execution-beats-judging edge read for an
+    agent: A:92 "A transcript tells you what the agent says it did, not what it
+    did", with A:70 "A judge that reads the transcript grades the agent's
+    claim, not the change it made", and 00-INDEX.md:34's "check it against the
+    real world ... query the database". ONE NUMBER HAS NO FIELD: A:77 "a
+    mismatch rate above 2% blocks launch, whatever the success rate". That is a
+    bar on a produced metric that blocks a launch, which neither requires (a
+    readiness threshold) nor gates (a three-valued enum) can hold. Raised in
+    the S13 report. A:76's "Re-run 10% of tasks twice" is a procedure step, not
+    a threshold, and is left in prose
 
 A3_normalised_exact_match:
   section: A
   name: Normalised exact match (token-F1 for multi-word)
   type: grader
   triggers_on_situation: [qa_answer]
-  required_signals: ["the expected output is a short fact", "case, whitespace, unit and number formats can be normalised deterministically"]
+  required_signals: ["the expected output is a short fact", "case, whitespace, unit and number formats can be normalised deterministically", "identifier fields (IFSC, GSTIN, PAN, policy number, PIN code) are excluded from normalisation and matched exactly with a format or checksum check", "accepted alternatives are listed per item rather than handled by a looser normaliser"]
   required_tools: []
-  ladder_priority: null
+  ladder_priority: 3
   requires: {}
   produces: [normalised_exact_match, token_f1]
   gates: absolute
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
-  conflicts_with: []
+  conflicts_with: [A4_judge_binary_criteria]
   analysis_cost: low
   capture_cost: low
   anti_pattern: >-
@@ -105,25 +158,38 @@ A3_normalised_exact_match:
   domain_scenario: >-
     **Banking**: IFSC lookup. "HDFC0001234" must match exactly, because one
     wrong character routes money to the wrong branch
-  rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
+  rule_of_thumb: >-
+    For token-F1, fix the threshold (F1 ≥ 0.8) and hand-audit the 50 items
+    closest to it
+  source_ref: A-choosing-how-to-grade.md § A3
   extraction_notes: >-
     "Output is a short fact" maps to qa_answer, the nearest member. The cell is
     broader than the member: an extracted field is also a short fact, and that
-    case is A5's row. Flagged for EL-113
+    case is A5's row. Ladder rung 3, SHARED WITH A5 -- see this file's header
+    for the line that decided it. conflicts_with A4 is the most explicit
+    statement of the edge anywhere in section A: A:127 "Switching to an LLM
+    judge because exact match is 'too strict'. The fix is a better normaliser.
+    A judge adds leniency where you least want it: on numbers", and A:130 "For
+    a fact with one right answer, a judge only adds cost and a way to be
+    wrong." rule_of_thumb is A:111 verbatim; A:302's decision flow states the
+    same bound as "token-F1 ≥ 0.8 for spans". The F1 bound is the comparator's
+    pass threshold, not a readiness threshold, so requires stays empty. ONE
+    NUMBER HAS NO FIELD: A:112 "Sample 50 failures. If more than 10% are
+    actually correct, fix the normaliser" -- a monthly audit bar on the
+    grader's own false-negative rate. Raised in the S13 report
 
 A4_judge_binary_criteria:
   section: A
   name: LLM-as-judge with a binary-criteria rubric
   type: grader
   triggers_on_situation: [prose_generation, summarization]
-  required_signals: ["the output is open-ended text with no single correct answer", "the quality criteria can be written as explicit yes/no questions"]
+  required_signals: ["the output is open-ended text with no single correct answer", "the quality criteria can be written as explicit yes/no questions", "the criteria were derived from error analysis of real outputs, not brainstormed", "each criterion gets its own judge call, reasoning first, then PASS/FAIL", "the judge model version is pinned and temperature is 0", "critical and cosmetic criteria are scored separately"]
   required_tools: [llm_api]
-  ladder_priority: null
-  requires: {}
+  ladder_priority: 4
+  requires: {judge_human_kappa_to_trust: 0.6, judge_human_kappa_to_gate: 0.8}
   produces: [criterion_pass_rate]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci, E3_length_controlled_win_rate]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -138,29 +204,47 @@ A4_judge_binary_criteria:
     **Telecom**: Hinglish reply to "recharge ho gaya par balance nahi aaya".
     Checks: states the 5–7 working-day refund timeline? No invented plan names?
     Apologises once?
-  rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
+  rule_of_thumb: >-
+    Validate each criterion against 150–200 human labels. Require κ ≥ 0.6
+    before you trust a criterion, and κ ≥ 0.8 before it gates a release
+  source_ref: A-choosing-how-to-grade.md § A4
   extraction_notes: >-
     "Output is open-ended text" maps to two members, prose_generation and
     summarization. rag_answer is also open-ended text and is deliberately NOT
     triggered here, because section G owns RAG grading (faithfulness,
-    attribution); mapping it would create an A4-vs-G overlap for EL-116 to
-    untangle. Flagged for EL-113
+    attribution). Ladder rung 4 from A:15. THIS IS THE RECORD FOUR OTHERS
+    SUPPRESS: A1, A2, A3 and A5 each name A4 in conflicts_with, and A4 names
+    none of them back, because the corpus edge is one-way (A:166 "When NOT to
+    use it: When code could check the criterion ... Don't pay a judge to do
+    them"). The two κ bounds are A:146 verbatim, and they are the reason this
+    record's requires has TWO keys for ONE metric: 0.6 to trust a criterion and
+    0.8 to let it gate. requires cannot say that the second applies only when
+    the record is gating, so the condition is carried in the key names and
+    raised in the S13 report. The 150–200 label count is a RANGE, so it is NOT
+    in requires (picking a value from a range is the invented number CLAUDE.md
+    section 3 forbids, the policy S10 set for F1, E4, F6, H5, H7, J2 and J5);
+    it is kept verbatim in rule_of_thumb. human_labels is deliberately NOT in
+    required_tools: a judge is runnable without gold labels, it is only
+    untrustworthy without them, and the Tool enum means "runnable"
+    (EL-002). Untrustworthiness is a readiness fact, which is why the κ bounds
+    are in requires instead. E3 is a companion per AGENT.md section 5, "any
+    judge score is reported with output length", which E3's own extraction
+    notes asked S13 to wire up
 
 A5_schema_field_scoring:
   section: A
   name: Schema validation + field-level scoring
   type: grader
   triggers_on_situation: [structured_extraction]
-  required_signals: ["the output is structured data", "a JSON Schema or equivalent field contract exists", "per-field ground truth is available"]
+  required_signals: ["the output is structured data", "a JSON Schema or equivalent field contract exists", "per-field ground truth is available", "schema validity is reported separately from wrong values, and wrong values separately from blanks", "list fields are aligned to the reference by content, not by position", "must-be-right fields are declared, weighted by downstream cost"]
   required_tools: []
-  ladder_priority: null
+  ladder_priority: 3
   requires: {}
   produces: [schema_valid_rate, field_accuracy]
   gates: absolute
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
-  conflicts_with: []
+  conflicts_with: [A4_judge_binary_criteria]
   analysis_cost: low
   capture_cost: low
   anti_pattern: >-
@@ -173,23 +257,34 @@ A5_schema_field_scoring:
     **E-commerce**: GST invoice extraction. Validate the GSTIN against a
     15-char regex and check HSN code, taxable value, and CGST/SGST vs IGST
     split
-  rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
-  extraction_notes: null
+  rule_of_thumb: >-
+    Identifiers get exact match plus checksum or regex. Amounts get numeric
+    match within ₹1. Dates are normalised to ISO. Names get token-F1 ≥ 0.9.
+    Enums get exact match
+  source_ref: A-choosing-how-to-grade.md § A5
+  extraction_notes: >-
+    Ladder rung 3, SHARED WITH A3 -- see this file's header for the line that
+    decided it. conflicts_with A4 is cited from A4's own "When NOT to use it",
+    A:166, which names this record's first stage by name: "Length limits,
+    'contains a timeline', valid JSON and banned phrases are regex jobs. Don't
+    pay a judge to do them, or accept its variance on them." rule_of_thumb is
+    A:183 verbatim, the comparator-per-field-type table. Its four bounds
+    (exact match plus checksum, ₹1, ISO, token-F1 ≥ 0.9) are comparator
+    settings, not readiness thresholds, so requires stays empty
 
 A6_expert_human_review:
   section: A
   name: Domain-expert human review, double-annotated and adjudicated
   type: grader
   triggers_on_situation: [high_stakes_decision]
-  required_signals: ["the decision is high-stakes and final", "two domain experts and a third adjudicator are available", "a stratified sample can be drawn"]
+  required_signals: ["the decision is high-stakes and final", "two domain experts and a third adjudicator are available", "a stratified sample can be drawn, oversampling the highest-risk intents", "the review is blind to model name, prompt version and the other experts' labels", "every disagreement is adjudicated and the ruling is written down"]
   required_tools: [human_labels]
-  ladder_priority: null
-  requires: {}
+  ladder_priority: 5
+  requires: {annotators: 2, items: 200, expert_kappa: 0.6}
   produces: [expert_verdict, adjudicated_disagreement_count]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci, F2_cohens_kappa]
+  unlocks: [A4_judge_binary_criteria]
   conflicts_with: []
   analysis_cost: high
   capture_cost: high
@@ -202,25 +297,44 @@ A6_expert_human_review:
   domain_scenario: >-
     **Healthcare**: a pharmacy chatbot's drug-interaction advice (e.g.,
     warfarin + an NSAID) before launch
-  rule_of_thumb: null
-  source_ref: evals-situation-to-technique.md § A
+  rule_of_thumb: >-
+    Allow 3–5 minutes per item per expert. At about ₹300 per review, 400
+    reviews cost ₹1.2 lakh
+  source_ref: A-choosing-how-to-grade.md § A6
   extraction_notes: >-
     The row prescribes double annotation and third-party adjudication, which is
-    the measurement machinery section F quantifies (κ, α). No F record is
-    referenced here because cross-references are EL-113's and F is EL-111's
+    the measurement machinery section F quantifies. Ladder rung 5 from A:16,
+    the ladder's top and last rung -- EL-004 removed the distilled rung, so
+    nothing sits above this. unlocks A4 is a stated ordering, not an inference:
+    A:219 "Use the same binary rubric as your judge (A4). Then the expert
+    labels also serve as the judge's validation set", A:240 "Use experts to
+    build the gold set, validate the judge, and sign off before launch. Use A4
+    for everything in between", and the decision flow A:310-312 "A6
+    Double-annotated expert review builds gold (expert κ ≥ 0.6) -> then A4
+    judge, validated on that gold, runs day to day". So A6 produces exactly the
+    labels A4's requires asks for. F2 is the companion that measures the
+    expert-expert agreement this record's requires bounds (A:220, and A:146's
+    "see Section F"). THREE REQUIRES ENTRIES, two copied and one INTERPRETED:
+    annotators 2 is A:211 verbatim ("Two qualified experts independently
+    grade"); expert_kappa 0.6 is A:220 verbatim ("If κ is below 0.6, the rubric
+    is ambiguous"); items 200 is the number A:217 states ("Draw 200 items") but
+    reading it as a readiness FLOOR is an interpretation -- the source says
+    "draw 200", not "at least 200". FLAGGED FOR HUMAN REVIEW in the S13 report.
+    A:217's "at least 40% from the highest-risk intents" is a stratification
+    rule, not a readiness count, so it stays in required_signals as prose
 
 A7_tiered_online_scoring:
   section: A
   name: Tiered online scoring
   type: procedure
   triggers_on_situation: [scoring_live_traffic]
-  required_signals: ["a score is needed on every production request", "deterministic checks and a sub-50ms classifier exist for the cheap tier", "a random sample of live traffic can be routed to an expensive judge"]
+  required_signals: ["a score is needed on every production request", "deterministic checks and a sub-50ms classifier exist for the cheap tier", "a random sample of live traffic can be routed to an expensive judge", "the uniform random sample is stored and reported separately from the classifier-flagged sample"]
   required_tools: [llm_api, production_logs]
   ladder_priority: null
-  requires: {}
+  requires: {judge_labelled_items: 5000}
   produces: [online_score, sampled_judge_score]
   gates: false
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -235,14 +349,28 @@ A7_tiered_online_scoring:
     **E-commerce**: scan every order-status reply for leaked phone numbers or
     addresses on a large marketplace support bot
   rule_of_thumb: >-
-    regex, schema and a fine-tuned classifier (<50 ms) on every call, with an
-    expensive judge on a random 1–2% sample
-  source_ref: evals-situation-to-technique.md § A
+    Tier 0 regex and schema checks under 5 ms and tier 1 a small fine-tuned
+    classifier under 50 ms, both on 100% of requests; tier 2 a frontier judge
+    on a 1–2% uniform random sample plus a capped share of tier-1 flags
+  source_ref: A-choosing-how-to-grade.md § A7
   extraction_notes: >-
-    A7 WRAPS the grading ladder rather than occupying a rung on it, per the
-    ticket and CLAUDE.md section 6, so ladder_priority stays null and its
-    relationship to the ladder is an open question for S6. Typed `procedure`
-    and not `grader`: it prescribes how to deploy graders across a traffic
-    tier, and renders no verdict of its own. The deterministic tier is A1/A3/A5
-    work and the sampled tier is A4 work, so the real shape is a composition of
-    other records, which the schema has no field for. Flagged for EL-113
+    A7 WRAPS the grading ladder rather than occupying a rung on it: A:18 says
+    so in the ladder box itself, "A7 Tiered online scoring (wraps all of the
+    above)". ladder_priority therefore STAYS NULL. It is not rung 0 and not
+    rung 6: EL-004 removed rung 6 as a distilled rung and reintroducing it
+    under another name would be the same invention, and the corpus states no
+    ordering for A7 at all. Its priority remains the OPEN QUESTION CLAUDE.md
+    section 6 records for S6, and S13 did not close it. Typed `procedure` and
+    not `grader`: it prescribes how to deploy graders across traffic tiers and
+    renders no verdict of its own, which is also why the null needs no
+    integrity exemption -- rule 4 only looks at graders. The deterministic tier
+    is A1/A3/A5 work and the sampled tier is A4 work, so the real shape is a
+    COMPOSITION of other records, which the schema has no field for; it is the
+    same unrepresentable shape as B7 wrapping B6, and both are raised together
+    in the S13 report. requires holds the one verbatim floor the record states,
+    A:257 "trained on 5,000+ judge-labelled items". TWO NUMBERS HAVE NO FIELD:
+    the 1–2% uniform sample rate is a RANGE (A:250, A:259), kept verbatim in
+    rule_of_thumb, and A:260 "If tier 1's recall on failures falls below 80%,
+    retrain it" is a bar on a produced metric with no home. The fine-tuned
+    classifier of tier 1 also has no Tool member; llm_api is the nearest and is
+    not the same capability

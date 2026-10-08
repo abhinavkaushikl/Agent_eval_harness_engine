@@ -234,8 +234,44 @@ def test_a_grader_without_a_rung_is_reported_once_the_ladder_has_started() -> No
         _record("A1_execution_based", ladder_priority=None),
         _record("A2_end_state_verification", ladder_priority=2),
     )
-    assert problem.startswith("A1_execution_based: ladder_priority: is null but other graders")
+    assert problem.startswith(
+        "A1_execution_based: ladder_priority: is null but other section-A graders"
+    )
     assert "1 execution" in problem and "5 human" in problem
+
+
+def test_a_grader_outside_section_a_needs_no_rung() -> None:
+    """EL-113's narrowing: the ladder is section A's, so only section A is asked.
+
+    ``B2_pairwise_preference`` is the real record behind this. It renders a
+    verdict, so it is a ``grader``, but ``A-choosing-how-to-grade.md:11-18``
+    never places it on the ladder. Under the all-or-nothing form of rule 4 it
+    became a defect the moment EL-113 runged A1-A6, and the only ways to
+    silence that were to invent a rung or retype the record. Both are
+    forbidden, so the rule was scoped instead. See the module docstring.
+    """
+    assert check_integrity(
+        (
+            _record("A1_execution_based", ladder_priority=1),
+            _record("A6_expert_human_review", ladder_priority=5),
+            _record("B2_pairwise_preference", ladder_priority=None),
+        )
+    ) == []
+
+
+def test_a_runged_grader_outside_section_a_does_not_start_the_ladder() -> None:
+    """The converse is deliberately NOT a defect -- see the module docstring.
+
+    A rung on a non-A grader is a decision to make in the open, not something
+    this module forbids, and it must not drag section A's unrunged graders into
+    firing either.
+    """
+    assert check_integrity(
+        (
+            _record("A1_execution_based", ladder_priority=None),
+            _record("B2_pairwise_preference", ladder_priority=4),
+        )
+    ) == []
 
 
 def test_no_grader_runged_at_all_is_silent() -> None:
@@ -401,7 +437,10 @@ def test_a_dangling_reference_is_found_in_every_field_at_once() -> None:
 def _messy_registry() -> tuple[TechniqueRecord, ...]:
     return (
         _non_grader("C1_wilson_ci", companion_checks=("Z9_missing",)),
-        # B1 below carries rung 1, which starts the ladder and makes A1's null a defect.
+        # A2 carries a rung, which starts section A's ladder and makes A1's null a
+        # defect. It has to be a section-A grader: EL-113 scoped rule 4 to the one
+        # section that has a ladder, so B1's rung below no longer starts anything.
+        _record("A2_end_state_verification", ladder_priority=2),
         _record("A1_execution_based", ladder_priority=None, unlocks=("A1_execution_based",)),
         # Only one copy has the bad section, so B1 shows rule 1 then rule 2 --
         # two records sharing an id are still checked independently.

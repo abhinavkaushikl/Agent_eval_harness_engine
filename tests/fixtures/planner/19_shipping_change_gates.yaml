@@ -1,0 +1,35 @@
+# Fixture 19 - shipping a change. The regression suite and the rollout gates.
+#
+# I1_ci_regression_gate and I9_shadow_then_canary both trigger on
+# shipping_change - correctly, since a CI gate and a staged rollout are both
+# things you do when shipping - and both are gates: I1 absolute
+# (I-production.md:33, "The merge is blocked if the aggregate drops beyond a
+# tolerance or any must-pass item fails") and I9 absolute (I:310, rollback
+# triggers defined before the ramp).
+#
+# E1_per_item_diff is ready as the companion both of them name - I:42 "Post the
+# diff in the PR: newly failing items, newly passing items" and I:308 "Log the
+# disagreement rate ... and judge a sample of the disagreements" - and
+# E4_aa_baseline is pending, because I1 takes its tolerance from the A/A noise
+# band (I:41) and three runs are needed to have one.
+#
+# WHAT THIS FIXTURE CANNOT ASSERT: the ticket says "regression suite +
+# STATISTICAL gates", and both gates reachable from shipping_change are
+# ABSOLUTE. The statistical gate is I2_split_deterministic_statistical, which
+# triggers on ci_flaking, so a session that is merely shipping never selects
+# it. Asserted as it is, and reported in S19-REPORT.md section 4.
+name: shipping_change_gates
+given:
+  situations: [shipping_change]
+  available_tools: [test_runner, repo_read, production_logs]
+  evidence: {runs: 2}
+expect:
+  ready: [E1_per_item_diff, I1_ci_regression_gate, I9_shadow_then_canary]   # diagnostic, then procedures by id
+  pending:
+    E4_aa_baseline: "needs runs: 3, have 2"
+  unavailable: {}
+  companions:
+    E1_per_item_diff: [E4_aa_baseline]   # a ready companion brings its own
+    I1_ci_regression_gate: [E1_per_item_diff, E4_aa_baseline]
+    I9_shadow_then_canary: [E1_per_item_diff]
+  prohibited: []

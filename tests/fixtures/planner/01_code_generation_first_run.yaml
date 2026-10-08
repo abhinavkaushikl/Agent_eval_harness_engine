@@ -1,0 +1,19 @@
+# Fixture 1 - code generation, first run, sandbox and test runner available.
+#
+# The flagship case: execution is the top rung and it is reachable, so it fires
+# on a single sample. Derived from A-choosing-how-to-grade.md § A1 (rung 1,
+# "if you can execute the output, do that instead of judging it",
+# 00-INDEX.md:34) and 00-INDEX.md:35, which is why C1 is forced in as a
+# companion - "put a confidence interval on every number".
+name: code_generation_first_run
+given:
+  situations: [code_generation]
+  available_tools: [sandbox, test_runner]
+  evidence: {samples: 1, runs: 1}
+expect:
+  ready: [A1_execution_based, C1_wilson_ci]   # grader before statistic; A1 is rung 1
+  pending: {}
+  unavailable: {}
+  companions:
+    A1_execution_based: [C1_wilson_ci]
+  prohibited: []

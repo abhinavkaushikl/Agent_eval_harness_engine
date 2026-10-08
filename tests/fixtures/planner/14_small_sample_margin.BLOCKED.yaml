@@ -1,0 +1,65 @@
+# Fixture 14 - BLOCKED, the registry cannot express it. Not loaded by the suite.
+#
+# THE SPECIFICATION, from TASKS.md group 6:
+#   14. small_sample (n=25) -> statistical comparisons pending, with the MARGIN
+#       STATED
+#
+# NEITHER HALF IS REACHABLE from the small_sample member, and the reason is a
+# trigger mapping, not a missing number.
+#
+# 1. THE MARGIN RULE EXISTS AND IS UNREACHABLE HERE.
+#    It is B5_ci_from_n's, recorded verbatim by S13:
+#      "The worst-case 95% margin on a percentage is about 100/√n points, or
+#       ±80/√n near 80%. If the gap is smaller than about 1.4× the per-score
+#       margin, treat it as a tie."
+#    At n = 25 that is 100/√25 = ±20 points, which is exactly the figure this
+#    fixture wants to see stated.
+#    But B5 triggers on `external_leaderboard` ONLY. A session classified
+#    small_sample never selects it, so no record in the plan states the margin.
+#
+# 2. NO STATISTICAL COMPARISON IS PENDING, because none is matched.
+#    The only record triggering on small_sample is C1_wilson_ci, whose requires
+#    is empty - correctly, since Wilson is chosen precisely because it behaves
+#    at small n. So the traced plan is:
+#      ready:   [C1_wilson_ci]
+#      pending: {}
+#    There is nothing to be pending. B3_mcnemar, B1_paired_evaluation and
+#    C2_power_analysis all trigger on other members.
+#
+# WHY THIS IS NOT AN AUTHORING SLIP IN B5. S10 mapped B5 to
+# external_leaderboard because the master lookup's Situation cell for that row
+# is about reading someone else's published number without an n. The margin
+# rule is general and its row is specific, which is the same shape as C1's
+# "Any score, ever" having no faithful situation mapping (S14's finding,
+# TASKS.md's open rulings).
+#
+# THE OPTIONS, for the ruling. Nothing below is implemented.
+#
+#   A. Add `small_sample` to B5_ci_from_n.triggers_on_situation.
+#      The record becomes reachable from the situation it is most useful in,
+#      and this fixture can assert ready: [B5_ci_from_n, C1_wilson_ci] with the
+#      margin in B5's rule_of_thumb. Cost: a situation mapping the master
+#      lookup does not state, in a section S13 already enriched - the same
+#      class of change as the A2 gate S16 proposed and did not make.
+#      This is the recommended option: `small_sample` is currently a near-dead
+#      member, reaching exactly one record.
+#
+#   B. Rewrite the fixture around a situation that does reach a comparison.
+#      e.g. two_candidates with a small n, where B3 is pending. Cost: the
+#      fixture stops being about small_sample, and fixtures 7-9 already cover
+#      B3's threshold.
+#
+#   C. Accept that the margin is not plan-visible at small n, and drop the
+#      fixture. Cost: the one rule of thumb a user most needs at n = 25 is in
+#      the registry and never shown. This is the status quo and it is worth
+#      saying out loud rather than leaving as an absence.
+#
+# Related and larger: SIX of the 57 Situation members reach no record at all -
+# classification, data_pipeline, model_training, contamination_risk,
+# distribution_mismatch, phi_present. small_sample is not among them but is one
+# record away from being. See S19-REPORT.md section 3.
+name: small_sample_margin_stated
+given:
+  situations: [small_sample]
+  available_tools: []
+  evidence: {samples: 25}

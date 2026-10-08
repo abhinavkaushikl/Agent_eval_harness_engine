@@ -1,0 +1,27 @@
+# Fixture 7 - two candidates, one run. McNemar is pending.
+#
+# The threshold is B3's own, copied verbatim by S13 from
+# B-comparing-two-things.md: discordant_pairs >= 25. Fixtures 7, 8 and 9
+# straddle it: 0 pending, 8 pending, 40 ready.
+#
+# B1_paired_evaluation is READY at one run, which is 00-INDEX.md:36's third
+# principle ("use the same items on both sides") and is also a finding: a
+# paired difference over a single pair is not a fact. B5_ci_from_n unlocks B1
+# and would hold it back, but `unlocks` is read by nothing in AGENT.md 3.5.
+# See S17-REPORT.md section 4 (Q5) and S16 finding F8.
+name: two_candidates_one_run
+given:
+  situations: [two_candidates]
+  available_tools: []
+  evidence: {runs: 1}
+expect:
+  ready: [B1_paired_evaluation]
+  pending:
+    B3_mcnemar: "needs discordant_pairs: 25, have 0"
+    E1_per_item_diff: "needs runs: 2, have 1"
+  unavailable:
+    B2_pairwise_preference: [llm_api]
+    H4_cost_per_success: [cost_api]
+  companions:
+    B1_paired_evaluation: [E1_per_item_diff]
+  prohibited: []

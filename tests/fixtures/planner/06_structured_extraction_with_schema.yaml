@@ -1,0 +1,23 @@
+# Fixture 6 - structured extraction with a schema present.
+#
+# A5_schema_field_scoring is rung 3 (deterministic, zero cost) and needs no
+# tool at all: a schema check is code. It fires on one sample.
+#
+# A5 carries conflicts_with: [A4_judge_binary_criteria] - the deterministic
+# grader replaces the judge for this artifact (A-choosing-how-to-grade.md's
+# ladder, where execution and deterministic checks beat judging). The edge does
+# not fire here because A4 never matched: it triggers on prose_generation and
+# summarization. `prohibited` is empty because no constraint record matched -
+# a suppressed grader is not a prohibition.
+name: structured_extraction_with_schema
+given:
+  situations: [structured_extraction]
+  available_tools: []
+  evidence: {samples: 1}
+expect:
+  ready: [A5_schema_field_scoring, C1_wilson_ci]   # rung 3 grader, then its CI
+  pending: {}
+  unavailable: {}
+  companions:
+    A5_schema_field_scoring: [C1_wilson_ci]
+  prohibited: []
