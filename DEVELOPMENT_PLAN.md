@@ -132,7 +132,7 @@ E8 M5                              █████
 | EL-203 | T16 Statistics module (Wilson, bootstrap, cluster, McNemar, permutation, power) | Story | 1 | — *(can run in parallel)* | Matches the corpus worked examples |
 | EL-204 | T9 Classifier heuristics | Story | 1.5 | EL-124 | Labels 10 sample files correctly |
 | EL-205 | T10 Oracle harvester | Story | 1.5 | EL-204 | HIGH oracles from a real repo |
-| EL-206 | T11 Sandbox runner | Story | 1.5 | EL-201 | Timeout → INCONCLUSIVE |
+| EL-206 | T11 Sandbox runner | Story | 1.5 | EL-201 | Timeout → failed, class `timeout` (EL-014) |
 | EL-207 | T12 Execution grader | Story | 2 | EL-206, EL-205 | Catches the broken function |
 | EL-208 | T13 Deterministic grader | Story | 1 | EL-206 | Schema / regex / exact checks |
 | EL-209 | T14 LLM client + router (stdlib HTTP) | Story | 1 | — | Routes by job; cost counted |

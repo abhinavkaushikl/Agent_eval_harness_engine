@@ -353,9 +353,9 @@ Make all 20 fixtures pass. **Do not modify a fixture to match the implementation
 ### T11 — Sandbox runner
 - [ ] T11.1 Tempdir workspace copy
 - [ ] T11.2 subprocess with `resource` rlimits (CPU, memory, files)
-- [ ] T11.3 Wall-clock timeout → `INCONCLUSIVE`
+- [ ] T11.3 Wall-clock or CPU-time cap → `failed`, class `timeout`, with the cap recorded (decision EL-014)
 - [ ] T11.4 Capture stdout/stderr/exit code
-- **Done when:** runs a command safely; timeout → INCONCLUSIVE.
+- **Done when:** runs a command safely; a timeout comes back `failed`/`timeout`, never confused with a wrong answer (EL-014).
 
 ### T12 — Execution grader
 - [ ] T12.1 Hidden-test isolation (tests not visible to generator)

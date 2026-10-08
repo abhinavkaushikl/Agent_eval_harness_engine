@@ -268,7 +268,7 @@ New components are marked **NEW**; the rest already exist in `AGENT.md` and are 
 | 8 | **Intent Bus** **NEW** | `evalloop/bus.py` | M2 | 4 |
 | 9 | **Episode builder** (absorbs debouncer + coherence) **NEW** | `evalloop/episode.py` | M2 | 8 |
 | 10 | Classifier | `evalloop/classify/` | M1→M2 | 9 |
-| 11 | **Capability broker** (grants, consent, cost, rate limits) **NEW** | `evalloop/capability/` | M2 | — |
+| 11 | **Capability broker** (grants, consent, cost, rate limits) **NEW** | `evalloop/capability/` | M1 → M2: the LLM client, job router, cross-family rule and session cost exist in M1 (EL-209); grants, consent and rate-limit policy are M2 | — |
 | 12 | Session orchestrator | `evalloop/session.py` | M2 | 8–11, 3 |
 | 13 | Local API + dashboard + **timeline** **NEW** | `evalloop/serve/` | M2 | 12 |
 | 14 | Honesty layer (readiness, noise floor, diagnostics, self-canary) | `evalloop/honesty/` | M3 | 3 |
@@ -375,7 +375,7 @@ The request was to cover every corner. These are the ones that actually bite; ea
 | Agent's "tests pass" is false | Independent re-run in a clean sandbox; the transcript is never evidence (`A` end-state rule) |
 | Flaky test | Repeat runs → noise floor; a within-noise delta is never an improvement (`C`) |
 | Non-deterministic LLM output | Fixed seed/temperature where possible; otherwise repeat and report variance, never a single number |
-| Timeout / infinite loop | Wall-clock cap → **INCONCLUSIVE**, distinct from fail |
+| Timeout / infinite loop | Wall-clock or CPU cap → **failed, class `timeout`**: counted in the rate, shown apart from wrong answers (`A`). A 0% made of timeouts is checked with an oracle run, which tells a broken harness from a broken artifact (`E`) — decision `EL-014` |
 | Network-dependent code | Egress denied in the sandbox by default; network need is a declared capability |
 | No oracle available | Ladder descends; if nothing can decide, it says so and queues a human review item. It does not invent an oracle. |
 | Rare class | Accuracy **prohibited** with the reason shown (`D`) |

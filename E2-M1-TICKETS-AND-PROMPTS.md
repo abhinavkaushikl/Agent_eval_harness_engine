@@ -35,12 +35,12 @@ off.** See §3.
 
 | Key | Title | Type | Est | Depends on | Blocks | Status |
 |---|---|---|---|---|---|---|
-| EL-014 | Timeout: INCONCLUSIVE or logged failure? | Decision | 0.25 | — | EL-206 | **Ready** |
-| EL-015 | Where the comparator numbers live | Decision | 0.25 | — | EL-207, EL-208 | **Ready** |
-| EL-203 | T16 Statistics module | Story | 1 | — | EL-213 | **Ready** |
-| EL-202 | T8 Episodic store (SQLite) | Story | 1 | — | — | **Ready** |
-| EL-209 | T14 LLM client + router | Story | 1 | *fixture-20 ruling* | EL-210 | **Ready\*** |
-| EL-201 | T7 Metric store (JSONL) | Story | 1 | 🔒G0 | EL-206, EL-213 | Blocked |
+| EL-014 | Timeout: INCONCLUSIVE or logged failure? | Decision | 0.25 | — | EL-206 | ✅ Decided |
+| EL-015 | Where the comparator numbers live | Decision | 0.25 | — | EL-206, EL-207, EL-208 | ✅ Decided · implementation pending |
+| EL-203 | T16 Statistics module | Story | 1 | — | EL-213 | ✅ Done — `EL-203-REPORT.md` |
+| EL-202 | T8 Episodic store (SQLite) | Story | 1 | — | — | ✅ Done — `EL-202-REPORT.md` |
+| EL-209 | T14 LLM client + router | Story | 1 | *fixture-20 ruling* | EL-210 | ✅ Done under option (b) — `EL-209-REPORT.md` |
+| EL-201 | T7 Metric store (JSONL) | Story | 1 | 🔒G0 | EL-206, EL-213 | ✅ Done ahead of 🔒G0 — `EL-201-REPORT.md` |
 | EL-204 | T9 Classifier heuristics | Story | 1.5 | 🔒G0 | EL-205, EL-214 | Blocked |
 | EL-205 | T10 Oracle harvester | Story | 1.5 | EL-204 | EL-207, EL-210 | Blocked |
 | EL-206 | T11 Sandbox runner | Story | 1.5 | EL-201, **EL-014** | EL-207, EL-208 | Blocked |
@@ -77,7 +77,7 @@ a preference.
 
 | # | Change | Why |
 |---|---|---|
-| 1 | **Added EL-213, evidence assembler (0.5 d)** | `plan()` takes `evidence: Mapping[str, object]` and **nothing in E2 as scoped produces it.** 33 distinct `requires` keys exist across the 73 records. Without a producer, every readiness bar in M1 is fed by hand, which means the pending queue — the honesty claim — is a literal. |
+| 1 | **Added EL-213, evidence assembler (0.5 d)** | `plan()` takes `evidence: Mapping[str, object]` and **nothing in E2 as scoped produces it.** 34 distinct `requires` keys exist across the 73 records. Without a producer, every readiness bar in M1 is fed by hand, which means the pending queue — the honesty claim — is a literal. |
 | 2 | **Added EL-214, one-shot run driver (1 d)** | Gate 1 is "point it at a toy repo and the bug is caught with zero instruction." Nothing in E2 walks classify → plan → harvest → grade → store → render. The session orchestrator is M2 (T23), so M1 needs a one-shot entry point or Gate 1 is run by hand, which is not the gate. |
 | 3 | **Added decisions EL-014 and EL-015 (0.25 d each)** | Both are corpus-vs-doc conflicts that land in code in this epic, not opinions. §4.1 and §4.2. |
 | 4 | **Re-pointed EL-212's dependency** | `DEVELOPMENT_PLAN.md` has Gate 1 depending on EL-211 alone. The gate needs the classifier, the oracles, the sandbox and the grader too; EL-211 only renders. Now via EL-214. |
@@ -224,7 +224,7 @@ needed.
 1. **M0 is code-complete and its output is a frozen `Plan`.** `plan(records, situations,
    available_tools, evidence) -> Plan`, pure, no I/O, five states keyed by record id. M1 consumes
    it; **M1 does not change it.** A planner change is a reported finding, not a commit.
-2. **73 records, 57 situations, 15 tools, 33 distinct `requires` keys.** Record ids are
+2. **73 records, 57 situations, 15 tools, 34 distinct `requires` keys.** Record ids are
    `<SECTION><N>_<snake_name>` and are the vocabulary M1's stores, reports and logs use.
 3. **Six situation members reach no record** (`classification`, `data_pipeline`, `model_training`,
    `contamination_risk`, `distribution_mismatch`, `phi_present`). EL-204 can classify a session
@@ -358,9 +358,11 @@ text, and when a ticket touches one, say in the report which way you went and wh
 6. SIX SITUATION MEMBERS REACH NO RECORD: classification, data_pipeline, model_training,
    contamination_risk, distribution_mismatch, phi_present. A session classified into one
    gets an empty plan with no explanation.
-7. TIMEOUT SEMANTICS ARE CONTESTED. Our docs say INCONCLUSIVE; the corpus
-   (A-choosing-how-to-grade.md:37) says count it as a failure and log it separately.
-   EL-014 settles it. Do not pick one quietly.
+7. TIMEOUT SEMANTICS ARE SETTLED (decision EL-014). A timeout is verdict `failed`,
+   failure class `timeout`: counted in every pass rate, always shown apart from wrong
+   answers. `inconclusive` is only for runs where the evaluation, not the artifact,
+   failed. The docs that said INCONCLUSIVE were corrected; older reports calling it
+   open are history.
 
 Where two of our own docs disagree on a number, NEITHER decides -- the corpus file does.
 Open it, copy verbatim, and report which doc was wrong.
@@ -1129,16 +1131,18 @@ reward-hack diff itself (M3).
 **Story.** *As a developer whose code might loop forever or delete a file, I want EvalLoop to run it
 somewhere it cannot hurt me, and to tell me plainly when it could not get an answer.*
 
-**Files** → `evalloop/grade/verdict.py`, `evalloop/grade/sandbox.py`, `evalloop/grade/config.py`
-(per EL-015) · `tests/test_sandbox.py`
+**Files** → `evalloop/grade/verdict.py`, `evalloop/grade/sandbox.py` · `tests/test_sandbox.py`.
+No config module: corpus numbers come from the record's `parameters` (decision EL-015)
 
 **Subtasks**
-- [ ] `verdict.py`: the outcome enum EL-014 settled, plus a result record carrying stdout, stderr,
-      exit code, duration and the resource limits that were in force
+- [ ] `verdict.py`: a result record carrying stdout, stderr, exit code, duration and the resource
+      limits that were in force. Its outcome types — `Verdict`, `FailureClass`, `TimeoutCap`,
+      `Timeout` — are imported from `evalloop/memory/case.py`, where EL-201 defined them. Never a
+      second copy
 - [ ] `subprocess` + `resource.setrlimit` + wall-clock timeout + `tempfile` working directory
 - [ ] Limits: CPU, address space, file size, open files, **and no network** (`ARCHITECTURE.md §9`:
       "Egress denied in the sandbox by default")
-- [ ] The 10-second timeout and row cap come from `A:37` via EL-015's config, not from this module
+- [ ] The 10-second timeout and row cap come from `A1_execution_based.parameters` (EL-015), not from this module; the row cap is `null` until a grant supplies it
 - [ ] Clean teardown even on timeout, signal or exception. No orphan processes, no leftover tempdirs
 - [ ] Env scrubbed: no credentials reach the child (`ARCHITECTURE.md §9`)
 - [ ] Record the exact command, limits and seed in the result, so a run is reproducible
@@ -1169,25 +1173,31 @@ subprocess + resource.setrlimit + wall-clock timeout + tempfile working director
 WHY THIS IS THE MODULE TO BE CAREFUL IN
 It executes code that an AI assistant wrote and the developer has not read. ARCHITECTURE.md
 section 9 spells out the requirements across two tables -- read both before writing a line:
-  - "Timeout / infinite loop: wall-clock cap -> INCONCLUSIVE, distinct from fail"
+  - "Timeout / infinite loop: Wall-clock or CPU cap -> failed, class timeout: counted in the
+    rate, shown apart from wrong answers" (as rewritten by decision EL-014)
   - "Network-dependent code: egress denied in the sandbox by default; network need is a declared
     capability"
   - "A grader could mutate real state: writes only in a scratch schema or restored snapshot"
   - "Credentials in a grader: impossible by construction -- only the capability broker holds them"
 
-BLOCKING DEPENDENCY -- EL-014
-The outcome enum is what EL-014 settles. Our docs say a timeout is INCONCLUSIVE, never pass or
-fail. The corpus, at knowledge rules/A-choosing-how-to-grade.md:37, says "Count a timeout as a
-failure but log it separately". If EL-014 is not decided when you start, STOP. Do not pick one
-and do not define a placeholder -- EL-201 already persists this type.
+SETTLED -- EL-014, AND WHERE ITS TYPES LIVE
+EL-014 is decided. A timeout is a failure with class `timeout`, counted in every rate and shown
+apart from wrong answers, as knowledge rules/A-choosing-how-to-grade.md:37 says: "Count a timeout
+as a failure but log it separately". `inconclusive` is only for an evaluation that failed, and
+it carries a reason. EL-201 defined these types in evalloop/memory/case.py -- Verdict,
+FailureClass, TimeoutCap, Timeout -- and the metric store persists them. Import them from there.
+Do not define a second copy: two look-alike enums let the sandbox and the store disagree with no
+error.
 
 BLOCKING DEPENDENCY -- EL-015
-The 10-second timeout and the row cap are corpus values from A:37 and they live wherever EL-015
-put them. Import them. Do not write `timeout=10` in this module.
+The 10-second timeout and the row cap are corpus values from A:37. Decision EL-015 puts them on
+the record: read them from A1_execution_based.parameters (`timeout`, `row_cap`). The row cap is
+null until a grant supplies it. Do not write `timeout=10` in this module.
 
 THE RESULT I WANT TO SEE
-1. verdict.py: EL-014's outcome enum, plus a result record carrying stdout, stderr, exit code,
-   duration, the limits in force, the exact command, and the seed.
+1. verdict.py: a result record carrying stdout, stderr, exit code, duration, the limits in
+   force, the exact command, and the seed. Its outcome is EL-014's Verdict / FailureClass /
+   Timeout, imported from evalloop/memory/case.py.
 2. sandbox.py enforcing CPU, address space, file size, open files, no network, and a wall-clock
    cap, in a tempfile working directory, with the child's environment scrubbed of credentials.
 3. Tests that PROVE each of these, not that assume them:
@@ -1229,7 +1239,7 @@ and tell me it is broken — not read it and tell me it looks good.*
       partial credit for internal tracking only. The headline metric is still full-task success")
 - [ ] **Compile-vs-logic split:** a syntax error and a wrong answer are different findings (`A:39`)
 - [ ] Result comparison per `A:35`: ignore row order unless ordering was asked for, ignore aliases,
-      float tolerance `1e-6` from EL-015's config
+      float tolerance `1e-6` from A1's `parameters` (EL-015)
 - [ ] Failure classes from `A:39`: syntax error / unknown column / runtime error / wrong result
 - [ ] **Mutation self-check** per `A:38`: mutate the reference, and if the mutant passes more than
       **5%** of the time, report that the fixtures are not discriminating
@@ -1265,7 +1275,7 @@ when: catches a deliberately broken function."
 The corpus section is knowledge rules/A-choosing-how-to-grade.md, A1, lines 28-41. READ ALL SIX
 OF ITS "How to do it properly" STEPS before writing. Four of them are this ticket:
   A:35  compare results, not formatting -- ignore row order unless ordering was asked for,
-        ignore aliases, float tolerance 1e-6 (comes from EL-015's config, not a literal here)
+        ignore aliases, float tolerance 1e-6 (read from A1's parameters, EL-015 -- not a literal here)
   A:37  resource limits (EL-206 owns these)
   A:38  test your tests -- mutate the reference solution; if the mutant still passes more than
         5% of the time, the fixtures are not discriminating enough
@@ -1322,7 +1332,7 @@ than by a model, because code is free, instant and does not have an opinion abou
       formats normalised deterministically
 - [ ] **Identifier fields excluded from normalisation** — IFSC, GSTIN, PAN, policy number, PIN code
       matched exactly, with a format or checksum check (`A3`'s signal, verbatim)
-- [ ] Token-F1 for multi-word answers, with `A:111`'s threshold from EL-015's config
+- [ ] Token-F1 for multi-word answers, with `A:111`'s threshold from A3's `parameters` (EL-015). A5's ₹1, ISO dates and name token-F1 ≥ 0.9 (`A:183`) come from A5's — the original ticket missed them
 - [ ] Per-field scoring, not per-record pass/fail, for `A5`
 - [ ] A cascade hook: a stub boundary where a cheap check hands off to a more expensive rung
 - [ ] Accepted alternatives listed **per item**, not handled by a looser normaliser (`A3`'s signal)
@@ -1377,7 +1387,8 @@ conflicts_with A4_judge_binary_criteria, so nothing in this module may call an L
 
 THE RESULT I WANT TO SEE
 1. Schema validation, regex, exact match, normalised exact match, and token-F1 for multi-word
-   answers -- with A:111's threshold taken from EL-015's config, cited, not typed as a literal.
+   answers -- with A:111's threshold read from A3's parameters (EL-015), and A5's within-₹1
+   amounts, ISO dates and name token-F1 >= 0.9 (A:183) read from A5's -- never typed as literals.
 2. PER-FIELD scoring for A5, not per-record pass/fail, stored per field so the report can show
    which field failed.
 3. A cascade hook that is a TYPED BOUNDARY WITH A TEST -- the place a cheap check hands off to a
@@ -1498,18 +1509,19 @@ natural-language intent, which needs M2's transcript reader.
 have 8" — with the 8 counted from my actual runs, not typed in by someone.*
 
 **Why this ticket exists.** `plan()`'s fourth argument is `evidence: Mapping[str, object]`, and
-**nothing in E2 as originally scoped produces it.** The 73 records declare **33 distinct `requires`
+**nothing in E2 as originally scoped produces it.** The 73 records declare **34 distinct `requires`
 keys**. Without a producer, every readiness bar in M1 is fed by hand — which means the pending queue,
 the system's entire honesty claim, is a literal.
 
-**The 33 keys, grouped by who can answer them**
+**The 34 keys, grouped by who can answer them**
 
 | Group | Keys | Answerable in M1? |
 |---|---|---|
-| Counted from the metric store | `runs`, `items`, `trials`, `positives`, `failures`, `fail_cases`, `candidates`, `discordant_pairs`, `attempts_per_category`, `smoke_items`, `calibration_items`, `majority_samples` | **Yes** — EL-201 holds them |
+| Counted from the metric store | `runs`, `failures`, `discordant_pairs`, `trials` (one trial = one run that contains the case) | **Yes** — EL-201's schema v1 holds them |
+| Need a field the v1 store does not have | `positives` (D1: a case's true class), `attempts_per_category` (D5, D6: an attack category), `candidates` (B4: a candidate id), `smoke_items` (J1: smoke-set membership), `benchmarks` (E8: a benchmark id) | **No** — none of these techniques runs in M1; the field would be schema v2 (`EL-201-REPORT.md` §5) |
 | Session or harness facts | `environment_resets_per_run`, `cluster_id_recorded`, `paired_ci_available`, `sample_size_stated`, `recall_at_k_measured`, `requires_pre_instrumentation`, `judgment_orders` | **Partly** — some are M1 config, some are M2/Track V |
 | Process facts | `pre_registration_filed`, `release_history_available`, `baseline_days` | **No** — no M1 component knows them |
-| Judge trust | `judge_human_kappa_to_trust`, `judge_human_kappa_to_gate`, `judge_labelled_items`, `judge_families`, `expert_kappa`, `target_agreement`, `annotators`, `human_pairwise_judgments`, `alpha_tentative`, `alpha_reliable`, `claim_labels` | **No** — M4 |
+| Judge trust | `judge_human_kappa_to_trust`, `judge_human_kappa_to_gate`, `judge_labelled_items`, `judge_families`, `expert_kappa`, `target_agreement`, `annotators`, `human_pairwise_judgments`, `alpha_tentative`, `alpha_reliable`, `claim_labels`, `items` (A6: items two experts reviewed, not stored cases), `fail_cases` (F1), `calibration_items` (F9), `majority_samples` (F8) | **No** — M4 |
 
 **Files** → `evalloop/memory/evidence.py` · `tests/test_evidence_assembler.py`
 
@@ -1518,14 +1530,14 @@ the system's entire honesty claim, is a literal.
 - [ ] Count the countable keys from the metric store; never estimate one
 - [ ] A key no M1 component can answer is **absent**, not zero — `evaluate_readiness` already treats
       missing as absent, and that is the honest behaviour
-- [ ] A coverage test over all 33 keys: each is produced, or declared unanswerable with the milestone
+- [ ] A coverage test over all 34 keys: each is produced, or declared unanswerable with the milestone
       that will answer it
 - [ ] Booleans and numerics kept distinct, as `evaluate_readiness` requires
 - [ ] Round-trip against the real registry: assemble, call `plan()`, assert the pending reasons read
       as `"needs <key>: <threshold>, have <actual>"`
 
 **Acceptance criteria**
-- [ ] All 33 keys enumerated **from the registry at test time**, not from a list in the test — a key
+- [ ] All 34 keys enumerated **from the registry at test time**, not from a list in the test — a key
       added to a record later must fail this test, not pass silently
 - [ ] A key with no answer is absent; a test proves absent and zero behave differently in a reason string
 - [ ] No key is ever filled with a plausible default. `CLAUDE.md §3` applies here hardest, because a
@@ -1548,7 +1560,7 @@ the thing that feeds plan()'s fourth argument from what was actually measured.
 
 WHY THIS TICKET EXISTS
 plan() takes evidence: Mapping[str, object], and NOTHING in M1 as originally scoped produces it.
-The 73 records declare 33 distinct `requires` keys. Without a producer, every readiness bar is fed
+The 73 records declare 34 distinct `requires` keys. Without a producer, every readiness bar is fed
 by hand, which makes the pending queue -- the system's whole honesty claim -- a literal.
 Confirm the count yourself:
   grep -h '^  requires: ' evalloop/registry/records/*.yaml | grep -v 'requires: {}'
@@ -1560,9 +1572,10 @@ check into a false claim, which is the exact failure CLAUDE.md section 3 and AGE
 exist to prevent. Never fill a key with a plausible default.
 
 WHAT CAN AND CANNOT BE ANSWERED IN M1
-  Countable from EL-201's metric store: runs, items, trials, positives, failures, fail_cases,
-    candidates, discordant_pairs, attempts_per_category, smoke_items, calibration_items,
-    majority_samples.
+  Countable from EL-201's metric store: runs, failures, discordant_pairs, and trials (one trial
+    = one run that contains the case).
+  Need a field EL-201's v1 store does not have, and no M1 technique uses: positives (D1),
+    attempts_per_category (D5, D6), candidates (B4), smoke_items (J1), benchmarks (E8).
   Session or harness facts, partly answerable: environment_resets_per_run, cluster_id_recorded,
     paired_ci_available, sample_size_stated, recall_at_k_measured, requires_pre_instrumentation,
     judgment_orders.
@@ -1570,7 +1583,9 @@ WHAT CAN AND CANNOT BE ANSWERED IN M1
     baseline_days.
   Judge trust, all M4: judge_human_kappa_to_trust, judge_human_kappa_to_gate,
     judge_labelled_items, judge_families, expert_kappa, target_agreement, annotators,
-    human_pairwise_judgments, alpha_tentative, alpha_reliable, claim_labels.
+    human_pairwise_judgments, alpha_tentative, alpha_reliable, claim_labels, items (A6's
+    expert-reviewed items, not stored cases), fail_cases (F1), calibration_items (F9),
+    majority_samples (F8).
 Check that grouping against the records yourself. If I have put a key in the wrong group, say so.
 
 THE RESULT I WANT TO SEE
@@ -1610,6 +1625,10 @@ broke, what could not be answered yet, and what it cost — in that order, witho
       evaluated and how (rung, oracle confidence HIGH/LOW) · findings including per-item flips **in
       both directions** · what is not yet answerable and what would unlock it · what was prohibited
       and why · cost
+- [ ] Inputs, named: the run and the run before it from the metric store (sections 2 and 3), the
+      `Plan` (sections 4 and 5), the episode's classification from the episodic store (section 1),
+      and the session's `CostLedger` total (section 6). The metric store alone cannot render §3.4
+      (`EL-201-REPORT.md` §4)
 - [ ] Reuse `Plan.render()`'s four states rather than reimplementing them
 - [ ] Oracle confidence shown per finding, never omitted — a LOW oracle must look LOW on the page
 - [ ] Interval next to every rate (`00-INDEX.md:35`, "put a confidence interval on every number")
@@ -1866,15 +1885,15 @@ rule), or make the toy repo easier so the gate passes.
 
 | Key | Deliverable | Doc change in this ticket? | Blocks |
 |---|---|---|---|
-| EL-014 | `decisions/EL-014-timeout-semantics.md` | Yes — whichever of `AGENT.md` §3.7/§5, `ARCHITECTURE.md` §9, `PLAN.md` T11 loses | EL-206 |
-| EL-015 | `decisions/EL-015-grader-config-home.md` | Possibly — `CLAUDE.md §6` if `TechniqueRecord` gains a field | EL-207, EL-208 |
+| EL-014 | `decisions/EL-014-timeout-semantics.md` | Yes — `AGENT.md:150`, `:199`; `ARCHITECTURE.md:378`; `PLAN.md:44`; `DEVELOPMENT_PLAN.md:135`; `TASKS.md:356`, `:358` | EL-206 |
+| EL-015 | `decisions/EL-015-grader-config-home.md` | No doc change now — `CLAUDE.md` §6 gains the `parameters` row with the implementing story | EL-206, EL-207, EL-208 |
 | EL-203 | `evalloop/stats/{proportions,compare,resample,power}.py` | No | EL-213 |
 | EL-202 | `evalloop/memory/episodic.py` | No | — |
 | EL-209 | `evalloop/capability/{llm,router}.py` | Yes — `ARCHITECTURE.md §7` component 11 starts in M1, not M2 | EL-210 |
 | EL-201 | `evalloop/memory/{case,metric_store}.py` | No | EL-206, EL-213 |
 | EL-204 | `evalloop/classify/heuristics.py` + 10 samples | No | EL-205, EL-214 |
 | EL-205 | `evalloop/grade/oracles/harvest.py` | No | EL-207, EL-210 |
-| EL-206 | `evalloop/grade/{verdict,sandbox}.py`, `config.py` | Yes — the losing timeout doc, if EL-014 did not already | EL-207, EL-208 |
+| EL-206 | `evalloop/grade/{verdict,sandbox}.py` | Yes — the losing timeout doc, if EL-014 did not already | EL-207, EL-208 |
 | EL-207 | `evalloop/grade/execution.py` + mutation self-check | No | EL-211 |
 | EL-208 | `evalloop/grade/deterministic.py` | No | EL-214 |
 | EL-210 | `evalloop/grade/oracles/author.py` | No | EL-214 |
@@ -1898,8 +1917,8 @@ In the order I would want them answered.
 |---|---|---|---|
 | 1 | **Is Gate 0 signed off?** Nine of sixteen E2 tickets depend on it, and F2/F8 change what M1 displays | EL-201, EL-204 | `GATE0-REVIEW-PACKET.md §5` |
 | 2 | **Which reading of Gate 1 applies** — harvested oracle, or authored oracle? It decides whether EL-210 is on the critical path, and whether the gate certifies a test runner or an eval system | EL-210, EL-212 | §4.4 |
-| 3 | **Timeout: INCONCLUSIVE, a logged failure, or both?** Our docs and the corpus disagree | EL-206, EL-201 | §4.1, EL-014 |
-| 4 | **Where do the six comparator numbers live?** | EL-207, EL-208 | §4.2, EL-015 |
+| 3 | ~~Timeout: INCONCLUSIVE, a logged failure, or both?~~ **Closed:** a failure, class `timeout`, in every rate and always shown apart; `inconclusive` only when the evaluation failed — decision `EL-014` | EL-206, EL-201 | §4.1, EL-014 |
+| 4 | ~~Where do the six comparator numbers live?~~ **Closed:** on each technique's record, in a new `parameters` field — 16 entries across A1, A2, A3 and A5; decision `EL-015` | EL-206, EL-207, EL-208 | §4.2, EL-015 |
 | 5 | **Does M1 make an outbound call on an unredacted artifact?** The egress arrives one milestone before the broker that fixture 20's ruling makes responsible for it | EL-209, EL-210 | §4.3 |
 | 6 | **F2 — are the two kinds of bar in `requires` separated?** EL-213 is the first code that has to tell them apart | EL-213, EL-211 | `GATE0-REVIEW-PACKET.md §2.1` |
 | 7 | **F8 — is `unlocks` made load-bearing, or documented as advisory?** EL-213 and EL-211 both look wrong if this is answered after they are built | EL-213 | `GATE0-REVIEW-PACKET.md §2.2` |
