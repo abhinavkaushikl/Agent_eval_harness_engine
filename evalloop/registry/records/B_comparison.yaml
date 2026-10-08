@@ -1,28 +1,43 @@
 # Section B - COMPARING TWO THINGS. Seven records, one per master-lookup row,
 # in the deep dive's numbering (B1-B7, from '^# B[0-9]+ ' headers).
 #
-# Skeleton extraction from evals-situation-to-technique.md only. requires is {}
-# everywhere (section B's rows state no readiness threshold), the three
-# cross-reference fields are [] everywhere, and ladder_priority is null. See
-# A_grading.yaml's header for how gates and the two cost fields were derived.
+# S13 (EL-113) enriched this file from B-comparing-two-things.md. Citations in
+# extraction_notes are `B:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched -- they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
 #
 # B1, B2 and B3 all trigger on two_candidates and are NOT merged: the lookup
 # commits to a different technique per row (per-item difference, preference
-# judging, discordant-pair test) and the ticket forbids merging.
+# judging, discordant-pair test).
+#
+# NO B RECORD CARRIES A LADDER RUNG. The ladder is section A's (A:11-18), and
+# the only grader here is B2, which the corpus never places on it. See B2's
+# extraction_notes and the S13 report: this is the integrity change the stage
+# required.
+#
+# INDEX PRINCIPLE 3, "Use the same items on both sides of every comparison"
+# (00-INDEX.md:36), is encoded three ways rather than as one edge: as
+# required_signals on B1, B2 and B3 (the records that consume paired data), and
+# as B1's unlocks edge into B3, which is the order the decision flow states
+# (B:277 "Are both evaluated on the SAME items?" gates everything below it).
+#
+# gates is statistical throughout, which the deep dive confirms rather than
+# merely permits: B:301 "Winner declared only if the CI of the DIFFERENCE
+# excludes 0 (or excludes your minimum worthwhile effect)."
 
 B1_paired_evaluation:
   section: B
   name: Paired evaluation + paired bootstrap CI
   type: statistic
   triggers_on_situation: [two_candidates]
-  required_signals: ["both versions ran on the same items", "a per-item outcome is recorded for each version"]
+  required_signals: ["both versions ran on the same items", "a per-item outcome is recorded for each version", "the item set is frozen across versions, not refreshed between runs", "what counts as a win is decided in advance: a CI lower bound above 0, or above a stated minimum worthwhile effect"]
   required_tools: []
   ladder_priority: null
   requires: {}
   produces: [paired_difference, paired_bootstrap_ci]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [E1_per_item_diff]
+  unlocks: [B3_mcnemar]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -36,23 +51,38 @@ B1_paired_evaluation:
     **Fintech**: loan-eligibility explainer prompt v3 vs v4 on the same 400
     applicant profiles
   rule_of_thumb: >-
-    run both versions on the same items and analyse the per-item difference
-  source_ref: evals-situation-to-technique.md § B
-  extraction_notes: null
+    Draw 5,000 resamples of item IDs, compute score_B − score_A on each, and
+    take the 2.5th and 97.5th percentiles
+  source_ref: B-comparing-two-things.md § B1
+  extraction_notes: >-
+    unlocks B3 is the decision flow's own order, B:277-293: "Are both evaluated
+    on the SAME items? ... YES" gates every branch below it, and the pass/fail
+    branch is McNemar. Pairing is the design B3 analyses, which is why the edge
+    runs this way and not back. E1 is the companion the record states outright,
+    B:38 step 4 "Read the losers. List the items where B is worse than A. A net
+    +3 can hide 30 regressions concentrated in one slice." rule_of_thumb is
+    B:37 verbatim. requires IS EMPTY AND THAT IS A GAP, not an omission: the
+    record states no minimum item count anywhere, so an empty requires means
+    the planner will call B1 ready at n = 1, which is exactly the dishonest
+    firing this project exists to prevent. The corpus's answer to small n lives
+    in a different record (B5's 100/√n margin), and nothing in the schema lets
+    B1 borrow it. Raised in the S13 report. The minimum-worthwhile-effect "for
+    example +1 point" at B:39 is explicitly an example, so it is not a
+    threshold and is not copied
 
 B2_pairwise_preference:
   section: B
   name: Pairwise preference judging with a position swap
   type: grader
   triggers_on_situation: [two_candidates]
-  required_signals: ["two candidate answers exist for the same input", "the judge can be run in both presentation orders"]
+  required_signals: ["two candidate answers exist for the same input", "the judge can be run in both presentation orders", "an explicit tie option is offered with a stated definition", "a verdict that flips when the order is swapped is counted as a tie"]
   required_tools: [llm_api]
   ladder_priority: null
-  requires: {}
+  requires: {judgment_orders: 2}
   produces: [win_rate, tie_rate]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [B6_bootstrap_ci, E3_length_controlled_win_rate]
+  unlocks: [B4_bradley_terry]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: medium
@@ -65,28 +95,51 @@ B2_pairwise_preference:
     **Legal**: two summaries of a 40-page commercial lease for a Bengaluru
     office. Which one flags the lock-in and escalation clauses correctly?
   rule_of_thumb: >-
-    the judge (or a human) sees A and B and picks one. Run it in both orders
-  source_ref: evals-situation-to-technique.md § B
+    Every pair is judged twice, as A-then-B and as B-then-A. A win only counts
+    when both orders agree
+  source_ref: B-comparing-two-things.md § B2
   extraction_notes: >-
     Typed `grader` because the technique renders a verdict on artifacts, which
     is CLAUDE.md section 6's test, and not `metric` although it produces a win
-    rate. This is the one grader in these three sections outside A1-A6, so it
-    is the record that shows a grader can exist with no rung on section A's
-    ladder: the position swap is the mitigation for position_bias_risk, which
-    is section F's row, not a trigger here
+    rate. THIS IS THE UNRUNGED GRADER, AND S13 IS WHERE IT BIT. Once A1-A6
+    carry rungs, integrity rule 4 (all-or-nothing over every grader) fires on
+    this record, so the stage could not reach its "integrity empty" done-when
+    without either inventing a rung for B2 or retyping it. Both are forbidden:
+    the ladder is section A's own (A:11-18) and the corpus never places B2 on
+    it, so a rung here would be an invented number, and retyping a record to
+    silence a checker is the workaround CLAUDE.md section 7.5 forbids. Rule 4
+    was therefore SCOPED TO SECTION A GRADERS, which is a narrowing to what the
+    corpus states, and it is the schema-adjacent change the S13 report raises
+    for ratification. requires {judgment_orders: 2} is B:64 and B:70 verbatim
+    ("Every pair is judged twice"; "Judge both orders, always"). B6 is the
+    companion the record names, B:74 "Report the win rate with a CI from a
+    bootstrap over pairs, and state the tie rate" -- a bootstrap over pairs,
+    not Wilson, so C1 is deliberately not used here. E3 is B:75 verbatim,
+    "Check whether length explains the win (see Section E3) before announcing
+    it", and AGENT.md section 5 makes it non-negotiable. unlocks B4 is B:141,
+    "Swap positions for every judgment (see B2) and count flips as ties": B4
+    consumes exactly this record's output. TWO NUMBERS HAVE NO FIELD: B:73
+    "Watch the flip rate. Above 10-15%, the judge is unreliable for this
+    comparison" is both a RANGE and an UPPER bound, and requires can express
+    neither (it holds one number per key and its direction is read as a floor);
+    and B:70's "Position bias typically flips 10-30% of verdicts" is an
+    observed base rate, not a threshold. Both raised in the S13 report.
+    required_tools is [llm_api] although B:64 says the judge is "a model or a
+    person": required_tools has no OR, so encoding the alternative would
+    wrongly demand both llm_api and human_labels. Also raised
 
 B3_mcnemar:
   section: B
   name: McNemar's test
   type: statistic
   triggers_on_situation: [two_candidates]
-  required_signals: ["paired binary outcomes on the same items", "discordant pairs can be counted: b old-right/new-wrong, c old-wrong/new-right"]
+  required_signals: ["paired binary outcomes on the same items", "discordant pairs can be counted: b old-right/new-wrong, c old-wrong/new-right", "the full 2x2 table is available: both-right, both-wrong, b and c"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {discordant_pairs: 25}
   produces: [chi_square, p_value]
   gates: statistical
-  companion_checks: []
+  companion_checks: [E1_per_item_diff]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -101,24 +154,40 @@ B3_mcnemar:
     **Insurance**: old vs new fraud-flag classifier on the same 500 motor
     claims
   rule_of_thumb: >-
-    a χ² test on discordant pairs only: b (old right, new wrong) vs c (old
-    wrong, new right)
-  source_ref: evals-situation-to-technique.md § B
+    With continuity correction, χ² = (|b − c| − 1)² / (b + c), with 1 degree of
+    freedom. Compare it with 3.84 (p = 0.05) or 6.63 (p = 0.01)
+  source_ref: B-comparing-two-things.md § B3
   extraction_notes: >-
-    The lookup states the χ² formula only with this row's numbers substituted
-    ("(abs(40−65) − 1)² / 105"), so it stays in worked_example verbatim rather
-    than being generalised to symbols in rule_of_thumb, which would be an
-    interpretation. The symbolic form is EL-113's to copy from the deep dive
+    THE THRESHOLD IS COPIED, NOT CHOSEN. B:107 states it exactly: "At least 25
+    discordant pairs (b + c >= 25) are needed for the chi-square
+    approximation." It is a single hard bound, not a range and not a rule, so
+    requires {discordant_pairs: 25} is verbatim. TASKS.md's "~25" was the loose
+    one; the corpus has no tilde, and the decision flow repeats the bound as a
+    hard test at B:293 ("b + c < 25? -> exact binomial instead"), as does the
+    second worked example at B:121 ("b + c = 14, which is below 25"). The
+    symbolic chi-square formula is now in rule_of_thumb from B:100, which
+    closes the note S10 left here; the worked_example keeps the lookup's
+    substituted form. The two critical values are B:108 verbatim and ride along
+    in rule_of_thumb because the schema has no field for a decision threshold
+    on the statistic itself -- requires holds readiness thresholds only. ONE
+    EDGE CANNOT BE EXPRESSED: B:107's second sentence states a FALLBACK, "Below
+    that, use the exact binomial test on b against b + c at p = 0.5". There is
+    no exact-binomial record (it is not a section B row), and the schema has no
+    field for "use this other technique instead when a readiness bound is not
+    met", so the planner will report B3 as not-ready below 25 and stop, where
+    the corpus says do something else. This is the strongest schema finding of
+    the stage and is raised first in the S13 report. E1 is the companion the
+    record states, B:109 "Read the b cell. These are your regressions"
 
 B4_bradley_terry:
   section: B
   name: Bradley–Terry (or Elo) from pairwise comparisons, with bootstrap CIs
   type: statistic
   triggers_on_situation: [many_candidates]
-  required_signals: ["five or more options to rank", "pairwise win/loss data across the options", "enough comparisons per pair to resample"]
+  required_signals: ["five or more options to rank", "pairwise win/loss data across the options", "enough comparisons per pair to resample", "the comparisons cover all pairs or form a connected random design", "every judgment was run in both presentation orders, with flips counted as ties"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {candidates: 5}
   produces: [latent_strength, rank_interval]
   gates: statistical
   companion_checks: []
@@ -136,10 +205,26 @@ B4_bradley_terry:
     **HR**: ranking 6 prompts that rewrite job descriptions for gender-neutral
     language
   rule_of_thumb: >-
-    fit a latent strength per option from pairwise win/loss data, then resample
-    to get a rank interval
-  source_ref: evals-situation-to-technique.md § B
-  extraction_notes: null
+    P(i beats j) = sᵢ / (sᵢ + sⱼ), fitted by maximum likelihood and not
+    sequential Elo, then bootstrapped 1,000× over comparisons for a 95%
+    interval on each option's rank
+  source_ref: B-comparing-two-things.md § B4
+  extraction_notes: >-
+    requires {candidates: 5} is B:134 verbatim, "When you're ranking five or
+    more options" -- a floor, so a single number rather than a range. The
+    record is reached from B2, whose unlocks edge names it; the dependency is
+    B:141, "Swap positions for every judgment (see B2)". rule_of_thumb is
+    composed from three verbatim fragments of this record and nothing else:
+    B:134's probability model, B:142 "Fit Bradley-Terry by maximum likelihood,
+    not sequential Elo", and B:143 "Bootstrap 1,000x over comparisons and
+    report a 95% interval for each option's rank". ONE THRESHOLD LEFT NULL:
+    B:140's "at least 50-100 judgments per pair" is a RANGE, so it is not in
+    requires, by the same policy that kept F1's 150-200 and J2's 300-500 out.
+    It is the one number a planner would most want here, because it decides
+    whether the collected comparisons are enough to fit at all. B:144's
+    tiering instruction ("Group options whose rank intervals overlap into
+    tiers. Within a tier, choose on cost, latency or maintainability") is a
+    reading rule for the output, not a precondition, so it stays in prose
 
 B5_ci_from_n:
   section: B
@@ -149,11 +234,11 @@ B5_ci_from_n:
   required_signals: ["the leaderboard reports both the score and n", "the metric is a proportion"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {sample_size_stated: true}
   produces: [standard_error, confidence_interval]
   gates: statistical
   companion_checks: []
-  unlocks: []
+  unlocks: [B1_paired_evaluation]
   conflicts_with: []
   analysis_cost: low
   capture_cost: null
@@ -166,22 +251,36 @@ B5_ci_from_n:
     **Telecom**: picking a model for Hindi call-centre summaries from a public
     leaderboard
   rule_of_thumb: >-
-    SE = √(p(1−p)/n), and the 95% CI is ±1.96·SE
-  source_ref: evals-situation-to-technique.md § B
+    SE = √(p(1−p)/n), and the 95% margin is ±1.96·SE. The worst-case 95% margin
+    on a percentage is about 100/√n points, or ±80/√n near 80%. If the gap is
+    smaller than about 1.4× the per-score margin, treat it as a tie
+  source_ref: B-comparing-two-things.md § B5
   extraction_notes: >-
-    Type is genuinely arguable, as the ticket anticipated. "Compute the CI from
-    n" is an instruction about reading someone else's number, so it reads as a
-    `constraint` ("do not compare scores before computing the interval"); it is
-    typed `statistic` because what it produces is an interval from a formula
-    the cell states, and a constraint produces no number. capture_cost is null
-    because nothing is captured: n and p come off a published leaderboard
+    Type is genuinely arguable, as S10 noted: "Compute the CI from n" is an
+    instruction about reading someone else's number, so it reads as a
+    `constraint`; it is typed `statistic` because what it produces is an
+    interval from a stated formula, and a constraint produces no number.
+    capture_cost is null because nothing is captured: n and p come off a
+    published leaderboard. unlocks B1 is B:178 verbatim, "Break the tie on your
+    own paired set (B1). Your 300 items are worth more than their 5,000", and
+    the decision flow repeats it at B:299. rule_of_thumb now carries THREE
+    verbatim forms, all from this record: the exact SE at B:169, the 100/√n and
+    80/√n shortcuts at B:176 (section B's own rule of thumb, B:22, states the
+    first of these -- EL-004 recorded it as mis-sectioned to B from C, and this
+    is where it lands), and the 1.4x tie rule at B:177. ONE REQUIRES ENTRY IS
+    INTERPRETED: {sample_size_stated: true} encodes B:175, "Find n. If the
+    leaderboard doesn't state the test-set size, treat its rankings as
+    unverified". The corpus states the consequence, not a boolean, so turning
+    it into one is a prose-to-boolean reading. FLAGGED FOR HUMAN REVIEW in the
+    S13 report. The 1.4x factor is a decision rule on the numbers rather than a
+    readiness bound, so it is in rule_of_thumb and not requires
 
 B6_bootstrap_ci:
   section: B
   name: Bootstrap confidence interval
   type: statistic
   triggers_on_situation: [metric_without_formula]
-  required_signals: ["the metric has no closed-form standard error", "per-item results can be resampled with replacement"]
+  required_signals: ["the metric has no closed-form standard error", "per-item results can be resampled with replacement", "the resampling unit is the unit that was actually sampled", "the random seed is fixed, so the interval is reproducible in review"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -201,25 +300,39 @@ B6_bootstrap_ci:
     **E-commerce**: macro-F1 across 14 return-reason categories ("size issue",
     "damaged", "not as described"…)
   rule_of_thumb: >-
-    resample items with replacement 1,000–10,000×, recompute the metric, and
-    take the 2.5th/97.5th percentiles
-  source_ref: evals-situation-to-technique.md § B
-  extraction_notes: null
+    Resample items with replacement, recompute the metric, and take the 2.5th
+    and 97.5th percentiles. Use 5,000 resamples for reporting and 1,000 while
+    iterating. For a comparison, resample once and compute both systems on the
+    same resample, which makes the interval paired
+  source_ref: B-comparing-two-things.md § B6
+  extraction_notes: >-
+    rule_of_thumb is B:209-211 verbatim, which replaces the lookup's looser
+    "1,000-10,000x" with the two values the deep dive actually prescribes for
+    the two uses. Those are method parameters, not readiness thresholds, so
+    they are not in requires, which stays empty: the record states no minimum
+    item count. B:212's "Watch small classes. Bootstrap each class's F1 as
+    well. A macro average treats a 9-example class the same as a 900-example
+    one" is the one place a number appears, and both figures are the worked
+    example's, not a bound. THIS RECORD IS SUPERSEDED CONDITIONALLY: B:209
+    step 1 hands off by name -- "Resample the unit that was sampled. That's
+    usually items, and clusters if they're grouped (B7)" -- which is the edge
+    B7 carries in conflicts_with. See B7's notes for why the condition cannot
+    be expressed
 
 B7_cluster_bootstrap:
   section: B
   name: Cluster bootstrap
   type: statistic
   triggers_on_situation: [grouped_items]
-  required_signals: ["items belong to identifiable groups such as conversations or documents", "the group id is recorded for every item"]
+  required_signals: ["items belong to identifiable groups such as conversations or documents", "the group id is recorded for every item", "whole clusters can be resampled with replacement, carrying all of their items", "power is added by adding clusters, not more items per cluster"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {cluster_id_recorded: true}
   produces: [cluster_bootstrap_ci]
   gates: statistical
   companion_checks: []
   unlocks: []
-  conflicts_with: []
+  conflicts_with: [B6_bootstrap_ci]
   analysis_cost: medium
   capture_cost: null
   anti_pattern: >-
@@ -231,8 +344,34 @@ B7_cluster_bootstrap:
   domain_scenario: >-
     **Legal**: QA over 100 vendor contracts with 10 questions each
   rule_of_thumb: >-
-    resample groups, not items
-  source_ref: evals-situation-to-technique.md § B
+    effective n ≈ n / (1 + (m − 1)·ρ), where m is the number of items per
+    cluster and ρ is the within-cluster correlation. With m = 10 and ρ = 0.4,
+    1,000 questions carry the information of only 217
+  source_ref: B-comparing-two-things.md § B7
   extraction_notes: >-
     The Situation cell is "Items come in groups", which CLAUDE.md section 6
-    settled as the single member grouped_items in the data family
+    settled as the single member grouped_items in the data family. THE
+    GROUPING REQUIREMENT IS SPLIT ACROSS BOTH FIELDS, as the ticket directs:
+    requires {cluster_id_recorded: true} is the machine-checkable form of B:246
+    step 1, "Tag every item with its cluster ID (document, conversation,
+    customer or template)", and the resampling discipline it implies is in
+    required_signals from B:247 and B:250. The boolean is an INTERPRETATION of
+    prose into a key -- the source gives an instruction, not a flag -- and is
+    FLAGGED FOR HUMAN REVIEW in the S13 report. NO MINIMUM CLUSTER COUNT IS
+    STATED, so none is invented: m = 10 and ρ = 0.4 appear only inside the rule
+    of thumb's own worked figure, and 100 contracts is the worked example's.
+    rule_of_thumb is B:243 verbatim, including the 217. It is a FORMULA, which
+    the ticket predicted might not fit a string field; it does fit, because
+    CLAUDE.md section 6 defines the field as the stated formula copied verbatim
+    and nothing in M0 computes from it. No schema change needed for that one.
+    conflicts_with B6 is B:209's explicit handoff, and B:284's decision flow
+    makes it general -- "Are items grouped? YES -> resample GROUPS for every CI
+    below (B7)". But the conflict is CONDITIONAL in two ways the schema cannot
+    hold: it applies only while items are grouped (carried here by the trigger,
+    so this one is survivable), and B:248 makes reporting conditional on a
+    measured ratio -- "Compare the item-level and cluster-level CI widths. A
+    ratio above about 1.5x means clustering matters, so report the cluster CI."
+    That 1.5x has no field. B7 also WRAPS rather than replaces: it changes the
+    resampling unit of B1, B3 and B6 alike, which is the same shape as A7
+    wrapping the ladder, and conflicts_with is the nearest available edge
+    rather than the right one. Both are raised in the S13 report

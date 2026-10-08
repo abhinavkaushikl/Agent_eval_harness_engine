@@ -150,7 +150,7 @@ Always prefer the highest rung that can answer the question:
 Runs parallel across artifacts. Sandbox: subprocess + rlimits + timeout + tempdir, where timeout → **INCONCLUSIVE** (never pass/fail).
 
 ### 3.8 Statistics → Diagnostics  *(M1 stats, M3 diagnostics)*
-- **Statistics:** Wilson interval, bootstrap, cluster bootstrap, McNemar, permutation test, noise floor, power. Rules of thumb kept verbatim: `margin ≈ 100/√n`, `n ≈ 16/gap²`, noise floor from 3–5 repeat runs.
+- **Statistics:** Wilson interval, bootstrap, cluster bootstrap, McNemar, permutation test, noise floor, power. Rules of thumb kept verbatim: `margin ≈ 100/√n` (B5), `n ≈ 16·p(1−p)/δ²` (C2), noise floor from `k ≥ 5` repeat runs (C3; `k = 3` is for daily iteration only).
 - **Diagnostics:** E1 score jump, E3 length bias, E5 ceiling, E6 floor, reward-hacking detection.
 - **Honesty layer (M3):** readiness gate + pending queue, noise floor across repeat runs (refuses to call a within-noise delta an improvement), per-item diff (flips in both directions), journey ledger + trends, **self-canary** (detects its own degradation on a fixed known-answer set).
 
@@ -187,7 +187,7 @@ One place owns:
 | Never invent a threshold; use the source value or `null` | Fabricated rigor is worse than none |
 | Every threshold traces to a `source_ref` that resolves in `knowledge rules/` | An unresolvable citation is an invented number with extra steps |
 | Below readiness → `pending` with "need X, have Y" | Honest about what can't be answered yet |
-| Never accuracy on a rare class | Constraint record; "flag nothing" scores 99.8% |
+| Never accuracy on a rare class | Constraint record; "flag nothing" scores 97% at 3% prevalence (D:32, D:45) |
 | Never same-family judging | Self-preference bias |
 | Any judge score is reported with output length | Length bias companion |
 | Violation rate always reported with over-refusal rate | Never alone |

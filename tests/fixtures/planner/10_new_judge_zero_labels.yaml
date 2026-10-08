@@ -1,0 +1,27 @@
+# Fixture 10 - a new judge with no gold labels. It cannot gate.
+#
+# F2_cohens_kappa is pending on BOTH bars, which is the state the corpus
+# describes before any human agreement exists: F-trusting-your-grader.md:20,
+# "κ ≥ 0.6 before using a grader at all, and κ ≥ 0.8 before letting it gate a
+# release". F1 is pending on its own single bound, at least 50 FAIL cases
+# (F:36) - not the 150-200 gold labels of F:27, which is a range and is
+# therefore null in requires and verbatim in rule_of_thumb.
+#
+# F7_one_call_per_criterion is ready because it is a prompt-construction
+# procedure that needs no labels: it is how you build the judge, not how you
+# trust it.
+name: new_judge_zero_labels
+given:
+  situations: [new_judge_built]
+  available_tools: [human_labels, llm_api]
+  evidence: {}
+expect:
+  ready: [F7_one_call_per_criterion]
+  pending:
+    F1_gold_label_validation: "needs fail_cases: 50, have 0"
+    F2_cohens_kappa: "needs judge_human_kappa_to_trust: 0.6, have 0; judge_human_kappa_to_gate: 0.8, have 0"
+    F8_few_shot_from_disagreements: "needs majority_samples: 3, have 0"
+  unavailable: {}
+  companions:
+    F7_one_call_per_criterion: [F2_cohens_kappa]
+  prohibited: []

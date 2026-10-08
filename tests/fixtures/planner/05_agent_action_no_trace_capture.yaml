@@ -1,0 +1,34 @@
+# Fixture 5 - an agent, with no snapshot_restore and no trace_capture.
+#
+# ASSERT ON `unavailable`, NOT ON `pending`. The trajectory family - H5, H6, H7
+# - is stopped by a missing tool before any readiness boolean is consulted, so
+# it names trace_capture as the reason. H2 and H4 get as far as readiness and
+# are held by the precondition instead: H-agents.md:291 is the top gate of the
+# section's own decision flow, "Is the environment sandboxed and reset per run?
+# (H1) / NO -> build it first", and AGENT.md section 5 states it as a
+# non-negotiable.
+#
+# A2_end_state_verification is here because it ALSO triggers on agent_action
+# and it lives in section A, so it carries no H1 gate - only the
+# snapshot_restore tool. With that tool granted it would be READY while H1 had
+# never run. That leak is S16-REPORT.md section 4's finding and is not fixed.
+name: agent_action_no_trace_capture
+given:
+  situations: [agent_action]
+  available_tools: [sandbox, db_connection, cost_api]
+  evidence: {}
+expect:
+  ready: []
+  pending:
+    H2_outcome_based_success: "needs environment_resets_per_run: true, have false"
+    H4_cost_per_success: "needs environment_resets_per_run: true, have false"
+  unavailable:
+    A2_end_state_verification: [snapshot_restore]
+    H1_resettable_env: [snapshot_restore, trace_capture]
+    H3_pass_hat_k: [snapshot_restore]
+    H5_milestone_localisation: [trace_capture]
+    H6_injection_asr: [trace_capture]
+    H7_trajectory_taxonomy: [trace_capture]
+    H8_flaky_classification: [snapshot_restore]
+  companions: {}
+  prohibited: []

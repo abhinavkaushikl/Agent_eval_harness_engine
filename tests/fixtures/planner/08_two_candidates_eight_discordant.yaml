@@ -1,0 +1,29 @@
+# Fixture 8 - two candidates, two paired runs, EIGHT discordant pairs.
+# Still pending: the threshold is not met.
+#
+# 8 < 25, so B3_mcnemar stays pending and the reason names both the bound and
+# what is actually there. This is the fixture that proves the gate is a
+# threshold and not a flag - fixture 7 could have passed with any
+# "needs more data" behaviour, and this one cannot.
+#
+# The 25 is B3's verbatim figure from B-comparing-two-things.md, recorded by
+# S13. It was checked against the record before this fixture was written: had
+# S13 recorded null, fixtures 8 and 9 could not have been written at all, and
+# inventing 25 here would have been the invented number CLAUDE.md section 3
+# forbids.
+name: two_candidates_eight_discordant
+given:
+  situations: [two_candidates]
+  available_tools: []
+  evidence: {paired_runs: 2, discordant_pairs: 8}
+expect:
+  ready: [B1_paired_evaluation]
+  pending:
+    B3_mcnemar: "needs discordant_pairs: 25, have 8"
+    E1_per_item_diff: "needs runs: 2, have 0"
+  unavailable:
+    B2_pairwise_preference: [llm_api]
+    H4_cost_per_success: [cost_api]
+  companions:
+    B1_paired_evaluation: [E1_per_item_diff]
+  prohibited: []

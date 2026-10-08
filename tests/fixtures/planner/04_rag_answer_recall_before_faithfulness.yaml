@@ -1,0 +1,35 @@
+# Fixture 4 - RAG. recall@k must be measured before faithfulness is reported.
+#
+# THE EDGE THIS FIXTURE EXISTS FOR: G3_faithfulness is PENDING on
+# recall_at_k_measured. G-rag-systems.md:292 splits the score at G1 and hangs
+# G2, G3, G4, G5 and G7 beneath it; AGENT.md section 5 states it as a
+# non-negotiable, "Retrieval recall@k before faithfulness (RAG)".
+#
+# llm_api IS GRANTED ON PURPOSE. Capability (AGENT.md 3.5 step 3) precedes
+# readiness (step 4), so G3 without llm_api lands in `unavailable` and never
+# shows its pending reason. EL-116's acceptance criterion said "vector_store
+# granted ... faithfulness PENDING"; those two cannot both be true. See
+# S16-REPORT.md section 3, variant 1a.
+#
+# G6 and G8 are UNAVAILABLE rather than pending because they are not downstream
+# of G1 at all - G:301 and G:304 are separate branches of the decision flow -
+# so what holds them back is a missing tool, not the build order.
+name: rag_answer_recall_before_faithfulness
+given:
+  situations: [rag_answer]
+  available_tools: [vector_store, llm_api]
+  evidence: {}
+expect:
+  ready: [G1_component_wise_eval, C1_wilson_ci]   # metric before statistic
+  pending:
+    G2_oracle_context_test: "needs recall_at_k_measured: true, have false"
+    G3_faithfulness: "needs recall_at_k_measured: true, have false; claim_labels: 150, have 0"
+    G5_mrr_hit_at_k: "needs recall_at_k_measured: true, have false"
+    G7_context_precision: "needs recall_at_k_measured: true, have false"
+  unavailable:
+    G4_ndcg: [human_labels]
+    G6_unanswerable_set: [source_doc_read]
+    G8_citation_precision_recall: [source_doc_read]
+  companions:
+    G1_component_wise_eval: [C1_wilson_ci]
+  prohibited: []

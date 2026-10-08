@@ -1,37 +1,57 @@
 # Section F - TRUSTING YOUR GRADER. Nine records, one per master-lookup row, in
 # the deep dive's numbering (F1-F9, from '^# F[0-9]+ ' headers).
 #
+# S15 (EL-115) enriched this file from F-trusting-your-grader.md. Citations in
+# extraction_notes are `F:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched - they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
+#
 # F is the mixed section: six PROCEDURES (F1, F4, F6, F7, F8, F9), two
-# STATISTICS (F2 Cohen's κ, F3 Krippendorff's α) and one CONSTRAINT (F5
-# cross-family panel, which is AGENT.md section 5's "never same-family
+# STATISTICS (F2 Cohen's kappa, F3 Krippendorff's alpha) and one CONSTRAINT
+# (F5 cross-family panel, which is AGENT.md section 5's "never same-family
 # judging").
 #
-# TWO VOCABULARY GAPS, reported rather than patched. The grader_trust family
-# has seven members and F has nine rows. F7 ("Judge grades the wrong
-# dimension") and F8 ("Want better judge accuracy") have NO member: both are
-# "the judge I already built is not good enough", which no member names. Both
-# are mapped to new_judge_built, the nearest honest member, so F1/F7/F8 all
-# fire together for a session that has just built a judge. That is defensible
-# for the planner and still wrong as vocabulary. See each record's
-# extraction_notes.
+# F1'S LABEL COUNT IS 150-200, AND TWO OF OUR DOCS SAID 50-100.
+# The corpus states 150-200 four times: F1's own title (F:27), its "What it
+# is" (F:30), the decision flow (F:335) and the calibration stack (F:14).
+# TASKS.md S15 said "calibration 50-100 labels" and TASKS.md T36.1 said
+# "Collect 50-100 human labels". F NEVER SAYS 50-100 anywhere - grep returns
+# nothing. The real 50 in F is F9's calibration batch (F:301, "everyone labels
+# the same 50 items"), which is a different record, a different purpose and an
+# exact figure rather than a range. CLAUDE.md section 4 was already correct.
+# Both stale sites are fixed in this stage's diff; see S15-REPORT.md section 2.
+# Because 150-200 is a RANGE it is still not in requires - what IS recorded is
+# F1's one single bound, F:36's "at least 50" fail cases.
 #
-# F1's "150–200 human gold labels" is a RANGE and is therefore NOT recorded in
-# requires - the same rule that left E4's "3–5×" empty. It is the most
-# consequential threshold left on the table in this stage.
+# THE CALIBRATION STACK (F:11-15) is the authority for `unlocks` here, the way
+# D's pipeline box was for section D. It is explicitly ordered and explicitly
+# directional - "fix from the bottom up":
+#   4  Judge accuracy boosters   few-shot from disagreements, majority-of-3  (F8)
+#   3  Judge bias controls       position swap, cross-family panel      (F4, F5)
+#   2  Judge design              binary criteria, one call per criterion (F6, F7)
+#   1  Judge validation          150-200 gold labels; kappa + P/R       (F1, F2)
+#   0  Human gold quality        codebook, calibration rounds           (F9, F3)
+# F:17 states the hard precondition at the bottom: "Human-human agreement is
+# the ceiling. No judge can be validated above it." Only edges the corpus
+# states in words are written; the level transitions are NOT mechanically
+# expanded into four edges apiece, and the "validate each X against ..."
+# relations are companion_checks pointing DOWN the stack, which is how the
+# source phrases them. That also keeps `unlocks` acyclic, which integrity.py
+# does not check for.
 
 F1_gold_label_validation:
   section: F
   name: Validate against 150–200 human gold labels before use
   type: procedure
   triggers_on_situation: [new_judge_built]
-  required_signals: ["a stratified sample of items can be drawn", "humans are available to label that sample", "judge verdicts can be compared item by item"]
+  required_signals: ["a stratified sample of items can be drawn", "humans are available to label that sample", "judge verdicts can be compared item by item", "the sample is stratified to include enough fail cases, over-sampling known failures if needed", "the humans are blind to the judge's verdicts", "30% of the gold set is held out, so the judge is not tuned to its own test", "the judge is re-validated when the judge model, the rubric or the product domain changes"]
   required_tools: [human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {fail_cases: 50}
   produces: [judge_accuracy, per_class_recall]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [F2_cohens_kappa]
+  unlocks: [F8_few_shot_from_disagreements]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: high
@@ -45,29 +65,42 @@ F1_gold_label_validation:
     **Fintech**: a judge checking loan-collection messages against the RBI Fair
     Practices Code
   rule_of_thumb: >-
-    humans label a stratified sample, and you compare judge verdicts item by
-    item
-  source_ref: evals-situation-to-technique.md § F
+    Validate against 150-200 human gold labels before use. Report the
+    confusion matrix plus the judge's recall on "fail" - that is the number
+    that tells you whether it catches problems
+  source_ref: F-trusting-your-grader.md § F1
   extraction_notes: >-
-    "150–200" is a range, so requires stays empty rather than picking 150.
-    This is the threshold most likely to be wanted as a readiness gate, and
-    EL-115 should copy whichever single bound the deep dive states. gates is
-    `absolute` because the row says "before use": an unvalidated judge is a
-    must-fix, not a quality score
+    THE LABEL COUNT IS 150-200. See this file's header for the two docs that
+    said 50-100 and where that figure actually comes from. It is a RANGE, so
+    it stays out of requires and sits verbatim in rule_of_thumb, by the
+    policy that also keeps E:243's 200-300 and F:105's 20-30% out. WHAT IS
+    RECORDED INSTEAD is this record's one single bound: F:36 "Stratify the
+    sample: include enough 'fail' cases, at least 50, even if that means
+    over-sampling from known failures." That is a hard floor, verbatim, and
+    it is the more useful readiness gate of the two - F:33 explains why,
+    since a judge "can be 84% accurate overall and still miss half of the
+    bad outputs" when the sample has too few failures. gates is `absolute`
+    because the title says "before use": an unvalidated judge is a must-fix,
+    not a quality score. F2 is a companion from the decision flow at F:336,
+    "Report kappa AND per-class recall on 'fail' (F2)". unlocks F8 is this
+    record's own scenario at F:47, "After adding violation-specific few-shot
+    examples (F8), recall on the held-out 60 reached 88%" - F1 finds the
+    failures F8 feeds on. ONE NUMBER HAS NO FIELD: F:39's 30% held-out split
+    is a design parameter of the gold set, neither readiness nor a trust bar
 
 F2_cohens_kappa:
   section: F
   name: Cohen's κ + per-class precision/recall of the judge
   type: statistic
   triggers_on_situation: [measuring_agreement]
-  required_signals: ["two raters labelled the same items", "a confusion matrix of judge against human is available"]
+  required_signals: ["paired judge and human labels exist for the same items", "the label distribution is known, so chance agreement can be computed", "kappa is computed for every criterion, not just overall", "per-class precision and recall are reported alongside, because kappa alone does not say which direction the errors go"]
   required_tools: [human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {judge_human_kappa_to_trust: 0.6, judge_human_kappa_to_gate: 0.8}
   produces: [cohens_kappa, per_class_precision, per_class_recall]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [B6_bootstrap_ci]
+  unlocks: [F9_fix_rubric_first]
   conflicts_with: []
   analysis_cost: low
   capture_cost: high
@@ -79,28 +112,40 @@ F2_cohens_kappa:
   domain_scenario: >-
     **Insurance**: judge for claim-rejection letter compliance (IRDAI wording)
   rule_of_thumb: >-
-    κ = (p_o − p_e) / (1 − p_e), which corrects for chance agreement
-  source_ref: evals-situation-to-technique.md § F
+    Cohen's kappa = (p_o - p_e) / (1 - p_e). Bands: below 0.4 poor, 0.4-0.6
+    moderate, 0.6-0.8 substantial, above 0.8 near-perfect. Use a grader only
+    at 0.6 or above, and gate releases only at 0.8 or above
+  source_ref: F-trusting-your-grader.md § F2
   extraction_notes: >-
-    The κ formula is stated symbolically in the lookup, so it goes in
-    rule_of_thumb verbatim - unlike B3's χ², which the lookup states only with
-    numbers substituted. No κ acceptance threshold is stated in this row
-    (CLAUDE.md section 6 mentions κ ≥ 0.6 / 0.8 from the deep dive), so
-    requires stays empty for EL-115
+    THE KAPPA THRESHOLDS ARE VERBATIM AND STATED TWICE: F:21 "kappa >= 0.6
+    before using a grader at all, and kappa >= 0.8 before letting it gate a
+    release", and F:72 "Use a grader only at 0.6 or above, and gate releases
+    only at 0.8 or above". The decision flow adds the three bands at
+    F:337-339. The key names match A4's from S13 deliberately, because it is
+    the same measurement on the same judge - A4 is where the bound is
+    consumed and F2 is where it is produced. That also carries forward S13
+    finding F3 unchanged: requires holds two keys for ONE metric because it
+    cannot say that 0.8 applies only when the record is gating. The formula
+    is F:65 verbatim, with p_o and p_e kept as the corpus writes them. B6 is
+    a companion from F:74, "Bootstrap kappa (Section B6). A kappa of 0.65 on
+    150 items can have a CI running from 0.52 to 0.77" - a named record and
+    a worked reason. unlocks F9 is the decision flow at F:333, "kappa < 0.6
+    or alpha < 0.667 -> calibration rounds + codebook (F9). STOP until
+    fixed."
 
 F3_krippendorff_alpha:
   section: F
   name: Krippendorff's α
   type: statistic
   triggers_on_situation: [multiple_annotators]
-  required_signals: ["more than two labellers", "labels may be missing for some item-rater pairs", "the scale is nominal or ordinal"]
+  required_signals: ["three or more annotators labelled the items", "the overlap design and the scale type (nominal, ordinal, interval) are known", "the right distance metric is chosen: nominal for categories, ordinal for severity levels", "alpha can be recomputed leave-one-out per annotator"]
   required_tools: [human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {alpha_tentative: 0.667, alpha_reliable: 0.8}
   produces: [krippendorff_alpha]
   gates: statistical
   companion_checks: []
-  unlocks: []
+  unlocks: [F9_fix_rubric_first]
   conflicts_with: []
   analysis_cost: low
   capture_cost: high
@@ -113,27 +158,39 @@ F3_krippendorff_alpha:
   domain_scenario: >-
     **HR**: rating AI-generated interview-feedback summaries
   rule_of_thumb: >-
-    a reliability coefficient for any number of raters, missing labels, and
-    nominal or ordinal scales
-  source_ref: evals-situation-to-technique.md § F
+    alpha = 1 - (observed disagreement / expected disagreement). alpha >=
+    0.8 is reliable, 0.667-0.8 supports only tentative conclusions, and
+    below 0.667 means rework the rubric before you scale labelling
+  source_ref: F-trusting-your-grader.md § F3
   extraction_notes: >-
-    The Example states "< 0.667" as the point at which you rework the rubric.
-    It is a quality bound on the RESULT, not a readiness threshold on the
-    evidence, so it is not recorded in requires. Reported for EL-115
+    Triggers on multiple_annotators, which is the member this row exists
+    for. BOTH ALPHA BOUNDS ARE VERBATIM, stated twice: F:22 "Krippendorff's
+    alpha >= 0.667 for tentative conclusions and >= 0.8 for reliable ones",
+    and F:107 "alpha >= 0.8 is reliable, 0.667-0.8 supports only tentative
+    conclusions, and below 0.667 means rework the rubric". Two keys for one
+    metric again, for the same reason as F2 - and here the condition
+    requires cannot express is not gating-or-not but how strong a conclusion
+    the number may support. unlocks F9 is F:333 verbatim. ONE RANGE LEFT
+    OUT: F:105's "at least 20-30% of items labelled by 2 or more annotators"
+    is an overlap-design bound and a range, so it is carried in
+    required_signals as prose rather than picked from. ONE NUMBER HAS NO
+    FIELD: F:108's "If removing one person raises alpha by more than 0.1,
+    that annotator needs recalibration" is a trust bar on a leave-one-out
+    delta this record produces - S13 finding F2 again
 
 F4_position_swap_consistency:
   section: F
   name: Run both orders; count only consistent verdicts, and treat flips as ties
   type: procedure
   triggers_on_situation: [position_bias_risk]
-  required_signals: ["the judge can be presented A/B and B/A", "both verdicts are retained per pair"]
+  required_signals: ["every pair can be judged in both orders", "a flip between orders is recorded as a tie, not a win", "which system appears first is randomised across items as a backstop", "the direction of the lean is checked: a judge favouring slot 1 by more than 60/40 on flipped items is noted in its validation record"]
   required_tools: [llm_api]
   ladder_priority: null
   requires: {}
   produces: [consistent_verdict_rate, flip_rate]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [E3_length_controlled_win_rate]
+  unlocks: [F6_binary_criteria_rubric, F7_one_call_per_criterion]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: medium
@@ -145,25 +202,43 @@ F4_position_swap_consistency:
   domain_scenario: >-
     **E-commerce**: comparing two product-description generators
   rule_of_thumb: >-
-    present A/B and B/A, and accept a win only when both orders agree
-  source_ref: evals-situation-to-technique.md § F
+    Position bias flips 10-30% of pairwise verdicts. Report the flip rate.
+    Above 10-15%, the judge can't make this comparison reliably
+  source_ref: F-trusting-your-grader.md § F4
   extraction_notes: >-
-    B2 in section B already prescribes the position swap as part of pairwise
-    judging. The two rows are NOT merged, per the ticket: B2 is the comparison
-    technique and F4 is the judge-trust protocol that quantifies the bias
+    THE FLIP-RATE CEILING IS NULL IN requires, DELIBERATELY, AND THIS
+    MATTERS BECAUSE T36 MAKES IT A RUNTIME GATE. F:140 states it as "Above
+    10-15%, the judge can't make this comparison reliably" - which is BOTH a
+    range AND an upper bound, and requires can hold neither: it takes one
+    number per key and reads every value as a floor, so {flip_rate: 10}
+    would mean "needs a flip rate of at least 10%", the exact inverse of the
+    rule. Encoding it would not merely lose the bound, it would invert it,
+    which is the same failure mode S14 found for C4's n < 100. So the figure
+    is verbatim in rule_of_thumb and NOTHING can act on it until S13 finding
+    F3 is resolved. Whoever implements T36 must read it from there, not from
+    requires. F:136's "flips 10-30% of pairwise verdicts" is an observed
+    base rate, not a threshold, and is kept in the same string so the two
+    are not confused. E3 is a companion on AGENT.md section 5's authority -
+    "Any judge score is reported with output length" - because this record
+    produces a win rate from a judge; the edge rests on section 5 rather
+    than on a line in F, which the ticket permits for finding a missed edge
+    but not for a number. unlocks F6 and F7 is F:140's own remedy, "Sharpen
+    the criteria or switch to per-criterion binary judging", which F4's
+    legal scenario then carries out at F:154 by replacing the question with
+    three binary criteria
 
 F5_cross_family_panel:
   section: F
   name: Cross-family judge panel (3 judges from different vendors, majority vote)
   type: constraint
   triggers_on_situation: [self_preference_risk]
-  required_signals: ["judges from at least three different model families are reachable", "the generator's own family is known"]
+  required_signals: ["judges from three different model families are available", "no judge is from the same family as a candidate, where that can be avoided", "the majority vote is taken per item, and the individual judges' results are reported too, because disagreement between them is informative", "a panel is used for every vendor comparison; a single judge is used only within one model family"]
   required_tools: [llm_api_cross_family]
   ladder_priority: null
-  requires: {}
+  requires: {judge_families: 3}
   produces: [panel_win_rate]
   gates: absolute
-  companion_checks: []
+  companion_checks: [F1_gold_label_validation]
   unlocks: []
   conflicts_with: []
   analysis_cost: high
@@ -177,28 +252,44 @@ F5_cross_family_panel:
     **Telecom**: vendor bake-off between two model providers for a Hindi IVR
     bot
   rule_of_thumb: >-
-    several judges from different model families, aggregated
-  source_ref: evals-situation-to-technique.md § F
+    Use three judges from different model families (vendors) and take the
+    majority vote per item. The panel's verdict replaces any single judge
+  source_ref: F-trusting-your-grader.md § F5
   extraction_notes: >-
-    Typed `constraint`: AGENT.md section 5 states "never same-family judging"
-    as a hard rule and section 4 repeats it for the capability layer, so the
-    record's job is to prohibit, and the panel is what you do instead. This is
-    the one record in A-F requiring llm_api_cross_family, which is why that
-    member is a capability and not a transport (EL-002)
+    THE CROSS-FAMILY CONSTRAINT, CONFIRMED AGAINST THE DEEP DIVE. Typed
+    `constraint` and carrying llm_api_cross_family since S11, and the deep
+    dive bears both out: F:170 gives the reason - "Self-preference bias
+    inflates results for the judge's own model family. Judges prefer outputs
+    whose style, phrasing and structure resemble their own" - and F:191
+    states the prohibition as a mistake to avoid, "Using one vendor's model
+    to judge a contest that includes that vendor's model". AGENT.md section
+    5 lists it as "Never same-family judging". requires {judge_families: 3}
+    is verbatim and stated twice: F:167 "three judges from different model
+    families (vendors)" and F:173 "Choose judges from three different
+    vendors". F1 is a companion from F:174, "Validate each judge on the gold
+    set (F1) and exclude any below kappa 0.6" - a companion pointing DOWN
+    the calibration stack, which is how the source phrases it. THE
+    PROHIBITION IS NOT FULLY RENDERABLE, exactly as for D1 and D6: S14
+    finding F5 applies here too, and what F5 forbids is a CONFIGURATION (a
+    judge sharing a family with a candidate) rather than a metric name, so
+    even the `prohibits` proposal would need to hold more than a metric. The
+    strongest instance yet of that gap, and raised again rather than worked
+    around. F:174's kappa 0.6 is the same bound F2 records and is not
+    duplicated here
 
 F6_binary_criteria_rubric:
   section: F
   name: Replace the Likert scale with binary criteria (or pairwise)
   type: procedure
   triggers_on_situation: [scale_compressed]
-  required_signals: ["scores pile into two or three adjacent values", "quality can be decomposed into independent yes/no checks"]
+  required_signals: ["existing scores are available as a histogram to diagnose the collapse", "error analysis of low- and high-rated outputs is possible, so the checks are derived rather than brainstormed", "human rankings exist to correlate the summed score against"]
   required_tools: [llm_api]
   ladder_priority: null
   requires: {}
   produces: [criterion_pass_rate, human_rank_correlation]
   gates: false
-  companion_checks: []
-  unlocks: []
+  companion_checks: [F2_cohens_kappa]
+  unlocks: [A4_judge_binary_criteria]
   conflicts_with: []
   analysis_cost: low
   capture_cost: low
@@ -211,26 +302,37 @@ F6_binary_criteria_rubric:
     **Legal**: grading AI-drafted legal notices under Section 138 NI Act
     (cheque bounce)
   rule_of_thumb: >-
-    split quality into 4–8 yes/no checks and sum them
-  source_ref: evals-situation-to-technique.md § F
+    Plot the score histogram. If two adjacent values hold 75% or more of the
+    mass, the scale has collapsed
+  source_ref: F-trusting-your-grader.md § F6
   extraction_notes: >-
-    "4–8 yes/no checks" is a range and stays in rule_of_thumb rather than
-    requires. A4 in section A is the same binary-criteria rubric arrived at
-    from the other direction (choosing a grader rather than repairing one), and
-    the two rows are not merged
+    FIRST ACTION, and the only F record where the diagnosis is a stated
+    procedure step: F:207 "Diagnose it: plot the score histogram. If two
+    adjacent values hold 75% or more of the mass, the scale has collapsed."
+    The 75% is a SINGLE verbatim bound, but it is a diagnosis criterion on
+    existing scores rather than a readiness bound on evidence, so it is in
+    rule_of_thumb and requires stays empty. unlocks A4 is F:201 verbatim -
+    "(The rubric design is covered in Section A4. This subsection covers the
+    diagnosis.)" - which makes this record the diagnostic entry point to
+    A4's technique, and is the only F-to-A edge in the registry. F2 is a
+    companion from F:209, "Validate each check (F2), then measure how well
+    the summed score correlates with human rankings". ONE RANGE LEFT OUT:
+    F:201's "4-8 yes/no checks", which TASKS.md line 112 already lists among
+    the ranges left empty and which A4's own A:143 states identically as
+    "the 4-8 most frequent failure types"
 
 F7_one_call_per_criterion:
   section: F
   name: One judge call per criterion, with pass/fail few-shot examples for that criterion
   type: procedure
   triggers_on_situation: [new_judge_built]
-  required_signals: ["quality has separable dimensions such as factuality, tone and completeness", "pass and fail examples exist per dimension"]
+  required_signals: ["each quality dimension can be stated as its own prompt", "items can be batched to save cost without batching criteria", "the reasoning is emitted before the verdict, which gives better agreement than verdict-then-justification", "each criterion has a fluently written fail example as well as a pass example"]
   required_tools: [llm_api]
   ladder_priority: null
   requires: {}
   produces: [per_criterion_verdict]
   gates: false
-  companion_checks: []
+  companion_checks: [F2_cohens_kappa]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -244,29 +346,34 @@ F7_one_call_per_criterion:
     **Healthcare**: patient-education answers on diabetes diet, where a warm
     tone hides wrong carb advice
   rule_of_thumb: >-
-    a separate prompt per dimension (factuality, tone, completeness), each
-    asking for reasoning before the verdict
-  source_ref: evals-situation-to-technique.md § F
+    Use one prompt per criterion. Batch items to save cost, but not
+    criteria. Put the reasoning before the verdict
+  source_ref: F-trusting-your-grader.md § F7
   extraction_notes: >-
-    VOCABULARY GAP. The Situation cell is "Judge grades the wrong dimension",
-    and the grader_trust family has no member for it - the nearest neighbours
-    (scale_compressed, measuring_agreement) name different symptoms. Mapped to
-    new_judge_built, which is where a dimension confound is usually found, and
-    NOT patched by adding a member, per the ticket. A member such as
-    judge_dimension_confounded would be the fix if EL-103 is reopened
+    VOCABULARY GAP, unchanged by the deep dive and reported again: F7 is
+    "Judge grades the wrong dimension", and the grader_trust family has no
+    member for "the judge I already built is not good enough". It is mapped
+    to new_judge_built, the nearest honest member, so F1, F7 and F8 all fire
+    together for a session that has just built a judge. Defensible for the
+    planner, still wrong as vocabulary. F2 is a companion from F:240,
+    "Validate each criterion separately (F2)". ONE RANGE LEFT OUT: F:239's
+    "1-2 pass examples and 1-2 fail examples". F:251's r = 0.91 between
+    supposedly independent dimensions is the diagnostic signature of the
+    mistake this record fixes, and it is a trust bar with no field - S13
+    finding F2 - so it stays in prose
 
 F8_few_shot_from_disagreements:
   section: F
   name: Few-shot examples mined from judge–human disagreements + majority of 3 samples
   type: procedure
   triggers_on_situation: [new_judge_built]
-  required_signals: ["judge-human disagreements have been collected and labelled", "the judge can be sampled more than once per item"]
+  required_signals: ["judge-human disagreements have been collected and can be clustered into error types", "a development split and a held-out split exist, so the examples are not taken from the data they are validated on", "the judge can be sampled more than once per item"]
   required_tools: [llm_api, human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {majority_samples: 3}
   produces: [judge_agreement]
   gates: false
-  companion_checks: []
+  companion_checks: [F1_gold_label_validation]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -278,29 +385,43 @@ F8_few_shot_from_disagreements:
   domain_scenario: >-
     **Fintech**: judge for mis-selling risk in mutual-fund chatbot answers
   rule_of_thumb: >-
-    add the cases the judge got wrong as labelled examples, then sample 3× and
-    take the majority
-  source_ref: evals-situation-to-technique.md § F
+    Sample 3 times at temperature about 0.7 and take the majority, or use
+    temperature 0 plus a different example order each call. Stop when
+    held-out agreement plateaus, usually after about 10 examples
+  source_ref: F-trusting-your-grader.md § F8
   extraction_notes: >-
-    VOCABULARY GAP, the second of two in F. The Situation cell is "Want better
-    judge accuracy", which is an intention rather than an observable
-    situation, and no grader_trust member names it. Mapped to new_judge_built
-    alongside F1 and F7. "Majority of 3" is a parameter of the technique and
-    sits in rule_of_thumb, not requires
+    Same vocabulary gap as F7: "Want better judge accuracy" has no
+    grader_trust member and is mapped to new_judge_built. requires
+    {majority_samples: 3} is F:271 verbatim, "Sample 3 times at temperature
+    about 0.7 and take the majority", and the record's own title names it
+    ("MAJORITY OF 3"), so the 3 is definitional rather than chosen. F1 is a
+    companion from F:270, "Take these examples from the development split
+    only. Validate on the held-out split to avoid circularity" - the
+    held-out split is F1's 30%, so F8 cannot be validated without F1's gold
+    set. THREE RANGES LEFT OUT: F:268's 3-5 error types, F:269's 1-2
+    examples per type (6-10 in total), and F:272's "about 10 examples"
+    plateau, which is hedged with "about" and is a stopping heuristic rather
+    than a bound. NO unlocks EDGE TO F9 although F:284 points there ("They
+    went to the codebook (F9)") when majority voting cannot fix consistent
+    errors: F9 already unlocks F1 which unlocks F8, so adding F8 -> F9 would
+    make `unlocks` cyclic, and integrity.py does not check for cycles. The
+    pointer is kept here instead. That is a real cost of having one edge
+    type for both ordering and remediation, and it belongs with S13 finding
+    F4
 
 F9_fix_rubric_first:
   section: F
   name: "Fix the rubric first: a codebook with edge-case rulings + calibration rounds"
   type: procedure
   triggers_on_situation: [annotators_disagree]
-  required_signals: ["two or more human labellers disagree measurably", "adjudication sessions can be convened", "agreement can be re-measured after each round"]
+  required_signals: ["more than one human labels the same items, so disagreement is measurable", "annotators can be convened to discuss disagreements", "resolutions are written down as rulings with an example, forming a codebook", "the codebook is given to the judge as well, because its rulings make good few-shot material"]
   required_tools: [human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {calibration_items: 50, target_agreement: 0.6}
   produces: [post_calibration_agreement, edge_case_rulings]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [F2_cohens_kappa, F3_krippendorff_alpha]
+  unlocks: [F1_gold_label_validation, F8_few_shot_from_disagreements]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: high
@@ -314,11 +435,26 @@ F9_fix_rubric_first:
     **Content moderation**: Hinglish hate-speech labelling, where sarcasm and
     reclaimed slurs split annotators
   rule_of_thumb: >-
-    adjudication sessions write down how each ambiguous case is resolved, and
-    you re-measure agreement
-  source_ref: evals-situation-to-technique.md § F
+    Run a calibration round: everyone labels the same 50 items, then goes
+    through the disagreements together. Repeat until agreement is at least
+    0.6 (at least 0.7 for high-stakes work). Two or three rounds is typical
+  source_ref: F-trusting-your-grader.md § F9
   extraction_notes: >-
-    gates is `absolute` on the strength of the anti_pattern: the row states
-    human agreement is the CEILING for any grader, so everything downstream is
-    invalid until this is fixed. That is the one gating value in F that the
-    source argues for rather than leaving to interpretation
+    Triggers on annotators_disagree, the member this row exists for. THIS IS
+    THE BOTTOM OF THE CALIBRATION STACK and F:17 states its precondition in
+    the strongest terms the corpus uses anywhere: "Human-human agreement is
+    the ceiling. No judge can be validated above it", restated at F:297 as
+    "If humans agree at kappa 0.42, no judge can be validated beyond that".
+    That is why unlocks names F1 - level 0 to level 1 of the stack - and why
+    gates is `absolute`. unlocks also names F8 from F:304 verbatim, "Give
+    the codebook to the judge as well. Its rulings make good few-shot
+    material (F8)". F2 and F3 are companions from F:300, "Measure the
+    starting agreement (kappa or alpha)" - the two records that produce
+    those two numbers, which is also why the edge is a companion rather than
+    an unlocks. BOTH requires ENTRIES ARE VERBATIM: F:301's "everyone labels
+    the same 50 items" is an exact figure, not a range - this is the 50 that
+    two of our docs mistook for F1's label count - and F:303's "Repeat until
+    agreement is at least 0.6" is a single floor. The parenthetical "(at
+    least 0.7 for high-stakes work)" is a SECOND bound on the same metric
+    conditioned on stakes, which requires cannot express, so it is verbatim
+    in rule_of_thumb only: S13 finding F3 for the third time in this file

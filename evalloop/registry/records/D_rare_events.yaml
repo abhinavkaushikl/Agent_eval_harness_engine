@@ -1,31 +1,46 @@
 # Section D - RARE EVENTS. Six records, one per master-lookup row, in the deep
 # dive's numbering (D1-D6, from '^# D[0-9]+ ' headers).
 #
-# Two CONSTRAINT records live here, and they are what the planner puts in
-# PROHIBITED (AGENT.md section 3.5 step 2):
-#   D1 - never accuracy on a rare class. AGENT.md section 5 names this one
-#        explicitly as a constraint record.
-#   D6 - no "% safe" headline.
-# Both carry the source's own figure in anti_pattern, because a prohibition
-# nobody can picture gets ignored.
+# S14 (EL-114) enriched this file from D-rare-events.md. Citations in
+# extraction_notes are `D:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched - they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
 #
-# Skeleton extraction from evals-situation-to-technique.md only. See
-# A_grading.yaml's header for how gates and the two cost fields were derived,
-# and for why the cross-reference fields and ladder_priority are empty.
+# TWO CONSTRAINT RECORDS live here, and they are what the planner puts in
+# PROHIBITED (AGENT.md section 3.5 step 2):
+#   D1 - never accuracy on a rare class.  D:32 "A model that predicts 'all
+#        good' scores 97% accuracy and catches 0% of fraud" when fraud is 3%.
+#   D6 - no "% safe" headline.            D:205 "'99.9% safe' hides a small n
+#        and one category failing 5 of 20."
+# Both carry the source's own figure in anti_pattern, because a prohibition
+# nobody can picture gets ignored. NEITHER CAN BE FULLY RENDERED YET: the
+# schema has no field naming WHAT a constraint forbids, so the planner can
+# read the situation and the reason but not the word "accuracy". See
+# S14-REPORT.md finding F5; nothing was widened here to paper over it.
+#
+# THE PIPELINE ORDER (D:11-15) is the authority for `unlocks` in this file.
+# The deep dive numbers its own five steps:
+#   1. Measure    PR curve / PR-AUC on the rare class            (D1, D3)
+#   2. Constrain  precision floor (or F0.5) if false alarms cost (D2)
+#   3. Price      cost-based threshold on validation, frozen     (D4)
+#   4. Attack     targeted red-team set, ASR per category        (D5)
+#   5. Report     upper confidence bound + per-category counts   (D6)
+# D:16 adds the sampling rule that splits them: "Random production samples
+# feed step 1. Only curated sets feed steps 4-5."
 
 D1_pr_curve_never_accuracy:
   section: D
   name: Precision–recall curve and PR-AUC, never accuracy
   type: constraint
   triggers_on_situation: [rare_class]
-  required_signals: ["the positive class is a small fraction of traffic", "per-item scores are available across thresholds"]
+  required_signals: ["the positive class is a small fraction of traffic", "per-item scores are available across thresholds", "the true prevalence π is recorded, so precision can be re-weighted to it later", "the full PR curve is plotted, not a single operating point", "the operational constraint is marked on the curve, for example the alerts the ops team can review in a day"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {positives: 100}
   produces: [precision_recall_curve, pr_auc]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci]
+  unlocks: [D2_precision_at_floor, D3_average_precision]
   conflicts_with: []
   analysis_cost: low
   capture_cost: null
@@ -38,31 +53,57 @@ D1_pr_curve_never_accuracy:
   domain_scenario: >-
     **Fintech**: UPI collect-request fraud detection
   rule_of_thumb: >-
-    plot precision against recall across thresholds. PR-AUC reflects
-    performance on the positive class
-  source_ref: evals-situation-to-technique.md § D
+    To see k positives at prevalence π, you need about k/π random samples - 100
+    frauds at 0.3% needs 33,000 random transactions, which is why you enrich.
+    PR-AUC's baseline equals the prevalence, so report PR-AUC alongside it
+  source_ref: D-rare-events.md § D1
   extraction_notes: >-
     Typed `constraint`, not `metric`, on two authorities: the deep-dive title
-    is "PRECISION–RECALL CURVE AND PR-AUC, NEVER ACCURACY", and AGENT.md
-    section 5 lists "Never accuracy on a rare class" as a constraint record.
-    `produces` still names the two metrics the constraint mandates in place of
-    accuracy; the prohibition is the record, the curve is what you use instead.
-    The "under 5%" bound in the Situation cell is NOT recorded in requires: it
-    describes when the row applies, not how much evidence the technique needs
+    at D:26 is "PRECISION-RECALL CURVE AND PR-AUC, NEVER ACCURACY", and
+    AGENT.md section 5 lists "Never accuracy on a rare class" as a constraint
+    record. `produces` still names the two metrics the constraint mandates in
+    place of accuracy; the prohibition is the record, the curve is what you use
+    instead. THE PROHIBITION IS NOT FULLY RENDERABLE and nothing here hides
+    that. USER_EXPERIENCE.md section 3.1 wants the line "PROHIBITED  accuracy
+    rare_class: ..." and AGENT.md section 3.5 step 2 says "Anything they
+    prohibit is removed from `ready` and listed in `prohibited` with the
+    reason". Two of the three parts are already readable - the situation is
+    triggers_on_situation (rare_class) and the reason is anti_pattern, which
+    carries the corpus figure - but NO FIELD NAMES THE FORBIDDEN METRIC. There
+    is no "accuracy" record for conflicts_with to point at either, because
+    accuracy is never codified as a technique anywhere in the corpus; it exists
+    only inside other records' prose. Raised as finding F5 with a concrete
+    `prohibits` proposal; deliberately not worked around. ALSO: the figure is
+    97%, not 99.8%. D:32 says "predicts 'all good' scores 97% accuracy" and
+    D:45 says "The 'always legit' baseline scores 97.0% accuracy", both at the
+    3% prevalence of this scenario. USER_EXPERIENCE.md section 3.1's example
+    says 99.8%, which is D6's "% safe" headline figure from a different
+    scenario, and is corrected in this stage's diff. There is no
+    prevalence-free number here: the baseline accuracy IS one minus the
+    prevalence, so the figure only means anything with its scenario attached.
+    requires {positives: 100} is D:238's decision-flow gate verbatim, "Do you
+    have ≥ 100 positives in your eval set?" - a single hard bound, unlike
+    D:35's "Aim for at least 100-300", which is a range and is left out by the
+    range policy. The "under 5%" bound in the Situation cell is still NOT in
+    requires: it describes when the row applies, not how much evidence the
+    technique needs. unlocks follows the pipeline box at D:11-12: step 1 is
+    this record and step 2 is D2; D3 is the other half of step 1 and is
+    unlocked alongside, because D:103 makes AP the threshold-free comparison
+    read off this same curve
 
 D2_precision_at_floor:
   section: D
   name: Precision at a fixed floor (or F0.5)
   type: metric
   triggers_on_situation: [false_alarm_expensive]
-  required_signals: ["a false positive has a priceable cost", "a precision floor has been agreed with the business"]
+  required_signals: ["a false positive has a priceable cost", "a precision floor has been agreed with the business", "the floor is set from the agreed cost of a false positive, with ops and compliance", "precision is measured at the deployed prevalence, or re-weighted to it if the set was enriched", "precision is re-checked in production weekly, because prevalence drifts and precision drifts with it"]
   required_tools: []
   ladder_priority: null
   requires: {}
   produces: [precision_at_floor, recall_at_floor]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci, D1_pr_curve_never_accuracy]
+  unlocks: [D4_cost_based_threshold]
   conflicts_with: []
   analysis_cost: low
   capture_cost: null
@@ -75,25 +116,43 @@ D2_precision_at_floor:
   domain_scenario: >-
     **Banking**: auto-blocking outgoing NEFT/IMPS transfers as suspicious
   rule_of_thumb: >-
-    require precision ≥ X, then maximise recall under that constraint
-  source_ref: evals-situation-to-technique.md § D
+    Precision doesn't carry over between prevalences, but recall does.
+    Precision_deployed = TPR·π / (TPR·π + FPR·(1−π)), where π is the real-world
+    prevalence. A 96% precision measured on a 50/50 enriched set can be 9% in
+    production
+  source_ref: D-rare-events.md § D2
   extraction_notes: >-
-    The Example's "precision ≥ 95%" and "60% recall" are this scenario's
-    agreed numbers, not the technique's threshold - the rule of thumb is
-    "precision ≥ X" with X left open - so requires stays empty
+    The Example's "precision ≥ 95%" and "60% recall" are this scenario's agreed
+    numbers, not the technique's threshold - D:63's rule is "precision ≥ X"
+    with X left open, set per deployment from the cost of a false positive - so
+    requires stays empty. THE PRECISION-RECALL PAIRING IS INTERNAL TO THIS
+    RECORD, which is why it needs no companion edge: D:63 "You require
+    precision ≥ X ... and then maximise recall under that constraint" and D:71
+    "Maximise recall at that floor. Accept whatever recall results, even 60%"
+    mean a precision floor is reported WITH the recall it bought, and `produces`
+    already carries both precision_at_floor and recall_at_floor. The
+    cross-record half of the pairing is on D3, which D:104 tells to "Show
+    recall at the precision floor". rule_of_thumb is D:21 verbatim, section D's
+    own rule of thumb, which D:70 points back to by name ("re-weight using the
+    rule of thumb above") - so it belongs to this record even though it is
+    printed at the top of the file. D1 is a companion because this record's
+    floor is a point ON D1's curve (D:37 "Mark the operational constraint on
+    the curve") and because quoting a precision without D1's prohibition is how
+    the accuracy mistake comes back. unlocks D4 is pipeline step 2 to step 3,
+    D:12-13
 
 D3_average_precision:
   section: D
   name: Average precision (PR-AUC), a threshold-free comparison
   type: metric
   triggers_on_situation: [threshold_not_chosen]
-  required_signals: ["no operating threshold has been chosen yet", "per-item scores are available across thresholds"]
+  required_signals: ["no operating threshold has been chosen yet", "per-item scores are available across thresholds", "calibration is checked separately on a reliability curve, and poor calibration is fixed with isotonic or Platt scaling rather than treated as a reason to reject the model"]
   required_tools: []
   ladder_priority: null
   requires: {}
   produces: [average_precision]
   gates: statistical
-  companion_checks: []
+  companion_checks: [B6_bootstrap_ci, D2_precision_at_floor]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -108,16 +167,29 @@ D3_average_precision:
     **Insurance**: choosing between two health-claim fraud scorers before
     operations agrees on a review budget
   rule_of_thumb: >-
-    summarise the whole PR curve in one number
-  source_ref: evals-situation-to-technique.md § D
-  extraction_notes: null
+    Compare AP with bootstrap CIs - two APs 0.03 apart on 150 positives are
+    usually a tie - then compare at candidate operating points, showing recall
+    at the precision floor and at the review budget for each model
+  source_ref: D-rare-events.md § D3
+  extraction_notes: >-
+    BOTH COMPANIONS ARE NAMED BY THE CORPUS, by section and by quantity. D:103
+    step 1 is "Compare AP with bootstrap CIs (Section B6)", which names B6
+    outright - an AP has no closed-form standard error, so this is the same
+    handoff B6 exists for. D:104 step 2 is "Then compare at candidate operating
+    points. Show recall at the precision floor and at the review budget for
+    each model", and "recall at the precision floor" is exactly what D2
+    produces, so that is the cross-record half of the precision-recall pairing
+    the ticket asks for. The direction is one-way: D3 cannot be read without
+    D2's operating point, but D2 does not need a threshold-free comparison, and
+    D:69-72 names no AP. requires is empty - the 0.03 and 150 positives at
+    D:103 are the worked figure of a tie, not a bound
 
 D4_cost_based_threshold:
   section: D
   name: Cost-based threshold on a validation set, reported on a separate test set
   type: procedure
   triggers_on_situation: [threshold_not_chosen, error_costs_priceable]
-  required_signals: ["a dishonest and a missed detection both have a stated rupee cost", "a validation set separate from the test set exists"]
+  required_signals: ["a false alarm and a missed detection both have a stated rupee cost, written down by the business owner and including agreed soft costs such as churn or a regulator complaint", "a validation set separate from the test set exists", "the data is split three ways - train, validation and test - all at realistic prevalence or re-weighted to it", "the threshold is frozen after the validation sweep and before anything is reported on test", "the pricing is revisited quarterly, because the optimum moves when patterns or review costs shift"]
   required_tools: []
   ladder_priority: null
   requires: {}
@@ -137,27 +209,42 @@ D4_cost_based_threshold:
   domain_scenario: >-
     **Insurance**: motor-claim fraud routing to the SIU review team
   rule_of_thumb: >-
-    minimise FP·C_fp + FN·C_fn on validation, then freeze the threshold
-  source_ref: evals-situation-to-technique.md § D
+    For a calibrated model, the cost-optimal threshold is
+    t* = C_fp / (C_fp + C_fn). The more a miss costs relative to a false alarm,
+    the lower the threshold should be
+  source_ref: D-rare-events.md § D4
   extraction_notes: >-
     The only row in D whose Situation maps to two members: threshold_not_chosen
-    (shared with D3) and error_costs_priceable, which the cost formula requires.
-    The Example's C_fn, C_fp and 0.18 are one scenario's figures and are not
-    recorded as thresholds
+    (shared with D3) and error_costs_priceable, which the cost formula
+    requires. The Example's C_fn, C_fp and 0.18 are one scenario's figures and
+    are not recorded as thresholds; requires is empty because the threshold is
+    this record's OUTPUT, not a precondition. rule_of_thumb is D:132 verbatim,
+    including the t* symbol, which the corpus writes as an escaped asterisk in
+    Markdown. FIXED A GARBLED required_signal from S11: it read "a dishonest
+    and a missed detection both have a stated rupee cost", where "a dishonest"
+    was a corruption of "a false alarm" - D:138 says "Get C_fp and C_fn from
+    the business owner, in ₹, and write them down". That field is this
+    project's own prose rather than lookup-verbatim, so correcting it drifts
+    from nothing. The record is reached from D2 by the pipeline's step 2 to
+    step 3 and names no record of its own, so companion_checks and unlocks stay
+    empty. D:149's calibration finding - the sweep landed on 0.18 where a
+    calibrated t* would have been 0.016 - is the strongest argument in D for
+    checking calibration, and the record that owns calibration is D3; no edge
+    is written because D:138-142 never names it
 
 D5_red_team_asr:
   section: D
   name: Targeted red-team set + attack success rate (ASR) per category
   type: metric
   triggers_on_situation: [measuring_safety]
-  required_signals: ["a curated adversarial prompt set exists, bucketed by harm category", "attempts and successes are counted per category"]
+  required_signals: ["a curated adversarial prompt set exists, bucketed by harm category", "attempts and successes are counted per category", "the categories come from the harm policy, not from brainstorming", "prompts are written the way users actually write - Hinglish, transliterated Hindi, regional languages, typos, role-play framing and multi-turn escalation", "a human reviews every success", "20-30% of the set is refreshed each quarter, with a frozen core kept for trend lines"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {attempts_per_category: 50}
   produces: [attack_success_rate, asr_per_category]
   gates: absolute
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci, F1_gold_label_validation]
+  unlocks: [D6_upper_bound_no_safe_headline]
   conflicts_with: []
   analysis_cost: medium
   capture_cost: high
@@ -170,26 +257,42 @@ D5_red_team_asr:
   domain_scenario: >-
     **Healthcare**: a mental-wellness chatbot before launch in Tier-2 cities
   rule_of_thumb: >-
-    a curated adversarial prompt set per harm category; ASR = successful
-    attacks / attempts
-  source_ref: evals-situation-to-technique.md § D
+    ASR = successful attacks / attempts. Report ASR per category with Wilson
+    CIs, never only the pooled ASR
+  source_ref: D-rare-events.md § D5
   extraction_notes: >-
     required_tools is empty although red-teaming is laborious: the adversarial
     set is a required_signal (something that must exist about the data), not a
-    capability the Tool enum names. Flagged for EL-114
+    capability the Tool enum names. A category-specific rubric validated
+    against human labels does need human_labels, but that requirement belongs
+    to F1, which this record names as a companion, rather than being duplicated
+    here. BOTH COMPANIONS ARE NAMED BY SECTION IN THE SOURCE: D:176 "Report ASR
+    per category with Wilson CIs (Section C)" gives C1, and D:175 "Grade with a
+    category-specific rubric, validated against human labels (Section F)" gives
+    F1. unlocks D6 is pipeline step 4 to step 5 (D:14-15): D5 measures and D6
+    reports, and D:16 keeps them on the curated-set side of the sampling split.
+    requires {attempts_per_category: 50} IS AN INTERPRETATION and is flagged.
+    D:173 says "Typically 6-12, each with at least 50-100 prompts": the
+    category count is a range and is left out, and 50 is the LOWER END of an
+    "at least 50-100" range read as the floor. What makes it defensible rather
+    than a pick from a range is that D6:210 states 50 independently as a hard
+    bound on the same quantity - "Flag every category with fewer than 50
+    attempts as 'under-tested'" - so the two records agree on where
+    under-testing starts. Overruling it leaves D5 with no per-category floor at
+    all, and the planner unable to mark a thin category pending
 
 D6_upper_bound_no_safe_headline:
   section: D
   name: Upper confidence bound + per-category counts, no "% safe" headline
   type: constraint
   triggers_on_situation: [reporting_safety_numbers]
-  required_signals: ["failures and attempts are counted per category", "a confidence level for the bound has been chosen"]
+  required_signals: ["failures and attempts are counted per category", "a confidence level for the bound has been chosen", "the upper bound leads the report, not the point estimate", "every category has its own row with counts, rates and Wilson CIs", "a large safe category is never allowed to average away a failing one"]
   required_tools: []
   ladder_priority: null
-  requires: {}
+  requires: {attempts_per_category: 50}
   produces: [failure_rate_upper_bound, per_category_counts]
   gates: absolute
-  companion_checks: []
+  companion_checks: [C1_wilson_ci, C4_near_bounds_interval]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -203,11 +306,32 @@ D6_upper_bound_no_safe_headline:
     **HR**: a hiring-assistant bias report per protected attribute (gender,
     surname-inferred caste, age)
   rule_of_thumb: >-
-    report "failure rate ≤ X% at 95% confidence" plus a raw count table by
-    category
-  source_ref: evals-situation-to-technique.md § D
+    Lead with the upper bound, not the point estimate: "≤ 0.4% at 95%", not
+    "99.8% safe"
+  source_ref: D-rare-events.md § D6
   extraction_notes: >-
-    The second constraint in D: it forbids a reporting format rather than a
-    metric. AGENT.md section 5's "Violation rate always reported with
-    over-refusal rate" is the related non-negotiable, and the over-refusal half
-    is section I's, so no cross-reference is written here
+    The second constraint in D: it forbids a reporting FORMAT rather than a
+    metric, which makes the missing `prohibits` field (finding F5) bite
+    differently here - what it forbids is a pooled percentage headline, not a
+    named metric, so even a metric-name field would not hold it cleanly.
+    requires {attempts_per_category: 50} is D:210 VERBATIM and is the one hard
+    per-category count in the section: "Flag every category with fewer than 50
+    attempts as 'under-tested', because its bounds are too wide to support any
+    claim", repeated at D:259 in the decision flow as "any category < 50
+    attempts → mark under-tested; no claim". That is exactly the pending state
+    the planner needs. C4 is a companion because D:202 names its three outputs
+    as the only acceptable form of this report - "the upper Wilson or
+    Clopper-Pearson bound, or 3/n at zero" - and C1 because D:209 requires
+    Wilson CIs in the per-category table. CORRECTED A WRONG CLAIM FROM S11,
+    which said "the over-refusal half is section I's, so no cross-reference is
+    written here". IT IS NOT SECTION I'S. There is no over-refusal or
+    over-blocking record anywhere in the registry: grepping the whole corpus
+    for over-refusal, over-blocking and over-abstention returns hits only in
+    G6, scoped to RAG answerables. So AGENT.md section 5's non-negotiable
+    "Violation rate always reported with over-refusal rate | Never alone"
+    CANNOT BE ENCODED from this record - the counterpart does not exist, and
+    pointing at G6 would make a safety plan demand a RAG record. EL-004 found
+    this gap and listed it as item 5 of what the registry will not be able to
+    plan; S14 confirms it from the other side and raises it. D:211's
+    per-category bar is prefixed "for example", so the 2% is not a threshold
+    and is not recorded

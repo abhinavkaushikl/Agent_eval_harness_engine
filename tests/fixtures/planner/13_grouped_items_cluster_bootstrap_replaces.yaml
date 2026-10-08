@@ -1,0 +1,27 @@
+# Fixture 13 - grouped items. The cluster bootstrap REPLACES the plain one.
+#
+# This is the only fixture that exercises a conflicts_with edge, and it needs
+# TWO situations to do it. B7_cluster_bootstrap triggers on grouped_items and
+# B6_bootstrap_ci on metric_without_formula, so a plan built from
+# grouped_items alone never contains B6 and the edge never fires - the
+# replacement would be untested. metric_without_formula is added so that both
+# records are matched and the suppression is observable.
+#
+# The edge is B7's, recorded by S13 from B-comparing-two-things.md: a bootstrap
+# that resamples items when the items come in groups understates the interval,
+# so the cluster form replaces it rather than supplementing it.
+#
+# ASSERT THE ABSENCE: B6 is matched and is NOT in `ready`, `pending` or
+# `unavailable`. A fixture that only checked B7's presence would pass whether
+# or not the edge worked.
+name: grouped_items_cluster_bootstrap_replaces
+given:
+  situations: [grouped_items, metric_without_formula]
+  available_tools: []
+  evidence: {cluster_id_recorded: true}
+expect:
+  ready: [B7_cluster_bootstrap]   # B6_bootstrap_ci matched, then was suppressed
+  pending: {}
+  unavailable: {}
+  companions: {}
+  prohibited: []

@@ -1,0 +1,31 @@
+# Fixture 18 - two artifact situations at once. The merge must not duplicate.
+#
+# api_endpoint and sql_generation BOTH trigger A1_execution_based and nothing
+# else, so this fixture tests exactly one thing: that a record selected by two
+# situations appears ONCE. AGENT.md 3.5 step 1 says "multi-label merges without
+# duplication", and this is the case that can catch a merge implemented as list
+# concatenation.
+#
+# The order is deterministic and comes from step 7, not from the order the
+# situations were given: graders by ladder_priority ascending, then non-graders
+# grouped by type, then id. Reversing `situations` must produce the identical
+# `ready` list, which is the second thing this fixture pins.
+#
+# WHAT IT DOES NOT TEST, and the ticket's phrase "both families" implies it
+# should: breadth. There is no second record. A1 is the only record either
+# situation reaches, so the two families collapse to one row. For api_endpoint
+# that is thin - ARCHITECTURE.md section 6.5 expects schema validation on the
+# response too, and A5_schema_field_scoring triggers only on
+# structured_extraction. Reported in S19-REPORT.md section 4.
+name: api_endpoint_and_sql_generation
+given:
+  situations: [api_endpoint, sql_generation]
+  available_tools: [sandbox, test_runner]
+  evidence: {samples: 1}
+expect:
+  ready: [A1_execution_based, C1_wilson_ci]   # A1 ONCE, not twice; order is step 7's
+  pending: {}
+  unavailable: {}
+  companions:
+    A1_execution_based: [C1_wilson_ci]
+  prohibited: []

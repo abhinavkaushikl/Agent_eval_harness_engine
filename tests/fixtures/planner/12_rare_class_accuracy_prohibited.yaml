@@ -1,0 +1,34 @@
+# Fixture 12 - a rare class. Recall is ready and accuracy is prohibited.
+#
+# D1_pr_curve_never_accuracy is typed `constraint`, so it lands in
+# `prohibited` at step 2 - AGENT.md section 5's "never accuracy on a rare
+# class", whose figure is D-rare-events.md:32: a model predicting "all good"
+# scores 97% accuracy and catches 0% of fraud at 3% prevalence.
+#
+# evidence states positives: 100 because D1's requires carries that bound
+# verbatim from D:34. Below it the record is PENDING and "recall ready" is
+# simply false - which is what S17-REPORT.md section 4 (Q4) reports against
+# PLAN.md section 5's expectation.
+#
+# TWO THINGS THIS FIXTURE CANNOT ASSERT, both reported rather than worked
+# around:
+#   1. D1 appears in `ready` AND `prohibited` simultaneously, because step 2
+#      runs before step 4 and one record is both the prohibition and the
+#      measurement. The Plan dataclass permits it; nobody has ruled on whether
+#      it is intended. S17-REPORT.md section 4 (Q4).
+#   2. The word "accuracy" appears nowhere in the plan. No field names what a
+#      constraint forbids, so the prohibition is structural only - S14 finding
+#      F5, still open and still blocking the one thing this fixture is named
+#      for.
+name: rare_class_accuracy_prohibited
+given:
+  situations: [rare_class]
+  available_tools: []
+  evidence: {positives: 100}
+expect:
+  ready: [C1_wilson_ci, D1_pr_curve_never_accuracy]   # statistic, then constraint
+  pending: {}
+  unavailable: {}
+  companions:
+    D1_pr_curve_never_accuracy: [C1_wilson_ci]
+  prohibited: [D1_pr_curve_never_accuracy]

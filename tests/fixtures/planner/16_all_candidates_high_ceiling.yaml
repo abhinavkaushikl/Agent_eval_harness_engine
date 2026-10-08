@@ -1,0 +1,22 @@
+# Fixture 16 - every candidate scores high. The remedy is a harder set.
+#
+# E5_harder_set is E's first action for this symptom
+# (E-when-a-number-looks-wrong.md:15: "Everyone scores 90%+ -> E5 harder set
+# from real failures"). It requires production_logs, because the harder items
+# come from real traffic rather than from imagination - which is also why E5
+# unlocks I8_eval_set_from_logs.
+#
+# Granting production_logs is what makes this fixture about the ceiling rather
+# than about a missing tool. Without it the plan is one permission request,
+# which is fixture 2's lesson and not this one's.
+name: all_candidates_high_ceiling
+given:
+  situations: [all_candidates_high]
+  available_tools: [production_logs]
+  evidence: {}
+expect:
+  ready: [C1_wilson_ci, E5_harder_set]   # statistic, then diagnostic
+  pending: {}
+  unavailable: {}
+  companions: {}
+  prohibited: []

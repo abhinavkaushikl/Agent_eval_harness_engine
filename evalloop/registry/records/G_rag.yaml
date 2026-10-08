@@ -1,22 +1,62 @@
 # Section G - RAG SYSTEMS. Eight records, one per master-lookup row, in the
 # deep dive's numbering (G1-G8, from '^# G[0-9]+ ' headers).
 #
+# S16 (EL-116) enriched this file from G-rag-systems.md. Citations in
+# extraction_notes are `G:<line>` against that file. anti_pattern,
+# worked_example and domain_scenario are untouched - they are the master
+# lookup's columns and tests/test_records.py diffs them against it.
+#
 # Mostly metrics: G1, G3, G4, G5, G6, G7 and G8 are `metric`; G2 is the one
 # `diagnostic` (an oracle-context test exists to explain, not to measure).
 #
-# THE BUILD ORDER IS NOT HERE. AGENT.md section 5 states "retrieval recall@k
-# before faithfulness (RAG)", and CLAUDE.md section 4 gives G's ordering, but
-# unlocks and requires stay empty in this stage per the ticket - EL-116 owns
-# the edges.
+# THE BUILD ORDER IS NOW DATA. Its authority is the section's own decision
+# flow (G:287-306), its thesis (G:6 - "Evaluate retrieval and generation
+# separately, because an end-to-end score can't tell you which stage to fix")
+# and AGENT.md section 5's non-negotiable, "Retrieval recall@k before
+# faithfulness (RAG)". The flow is FOUR top-level branches, not one chain:
+#   G:290  gold passage labels           "Nothing below works without them"
+#   G:292  split the score          (G1) -> G2, G3, G4, G5, G7 hang beneath it
+#   G:301  unanswerables            (G6) a branch of its own
+#   G:304  citations shown to users (G8) a branch of its own
+# So G1 unlocks five records and gates all five in `requires`. G6 and G8 are
+# NOT downstream of G1 and carry no gate - reading the flow as a single chain
+# would have made them pending for a reason the corpus never states.
 #
-# VOCABULARY FINDING, reported once here rather than on eight records: all
-# eight Situation cells collapse onto the single member rag_answer. The cells
-# are eight DISTINCT symptoms ("Ranking quality matters", "Citations shown to
-# users", "Retrieval sometimes returns junk"...) and Situation has no
-# RAG-internal members, so match() cannot discriminate between them: a session
-# on rag_answer selects all eight at once. That is survivable only because
-# EL-116's build order will sequence them. G2 carries a second member,
-# debugging_regression, because stage isolation is a debugging act.
+# HOW A GATE IS WRITTEN, and why it is written twice. Nothing in AGENT.md
+# section 3.5's resolution order reads `unlocks`: steps 1-7 read
+# triggers_on_situation, the constraint records, required_tools, requires,
+# conflicts_with, companion_checks, then type/ladder/id. A build order
+# recorded only in `unlocks` is invisible to the planner. So each edge is
+# written in both directions -
+#   upstream    `unlocks`   the direction, for a human and for plan/rules.py
+#   downstream  `requires`  a boolean the readiness check can fail on
+# - and the boolean is named for the WORLD FACT that must hold rather than for
+# the record that establishes it: `recall_at_k_measured: true`, which is G1's
+# own produces[0], so the gate is traceable to its producer by name. Nothing
+# checks that the two directions agree; see S16-REPORT.md finding F8.
+#
+# WHAT COULD NOT BE WRITTEN, each in full in S16-REPORT.md:
+#   - G4-vs-G5 is a CONDITIONAL conflict (G:164 "If there are several valid
+#     documents, use nDCG"; G:151 and G:181 are the two mirrored mistakes).
+#     Both records trigger on rag_answer alone, so a `conflicts_with` edge
+#     would fire on every RAG session and suppress one of them unconditionally
+#     on a data property no field holds. Left empty - this answers the question
+#     S12 left on G5.
+#   - G2's buckets route to G4/G5 only when "ranked beyond k" is the largest
+#     one (G:295). Same conditional shape, so G2 unlocks nothing.
+#   - G6's two headline numbers must be reported together (G:195) but come
+#     from ONE record, and companion_checks holds record ids. The pairing
+#     lives in `produces` with no field marking it mandatory.
+#
+# VOCABULARY FINDING, unchanged from S12 and still live: all eight Situation
+# cells collapse onto the single member rag_answer. The cells are eight
+# DISTINCT symptoms ("Ranking quality matters", "Citations shown to users",
+# "Retrieval sometimes returns junk"...) and Situation has no RAG-internal
+# members, so match() cannot discriminate between them: a session on
+# rag_answer selects all eight at once. The build order above is what
+# sequences them, which is what S12 said it would have to be. G2 carries a
+# second member, debugging_regression, because stage isolation is a debugging
+# act.
 #
 # gates: see A_grading.yaml's header for the derivation. No G row states one.
 
@@ -25,14 +65,14 @@ G1_component_wise_eval:
   name: "Component-wise eval: retrieval recall@k plus generation accuracy given gold context"
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["retrieved passages are recorded per query", "gold context is available to feed the generator directly"]
+  required_signals: ["retrieved passages are recorded per query", "gold context is available to feed the generator directly", "every item carries a gold passage label as well as a gold answer", "the k actually passed to the generator is known, so recall is measured at that k and not at a larger one"]
   required_tools: [vector_store]
   ladder_priority: null
   requires: {}
   produces: [recall_at_k, generation_accuracy_given_gold_context]
   gates: statistical
-  companion_checks: []
-  unlocks: []
+  companion_checks: [C1_wilson_ci]
+  unlocks: [G2_oracle_context_test, G3_faithfulness, G4_ndcg, G5_mrr_hit_at_k, G7_context_precision]
   conflicts_with: []
   analysis_cost: low
   capture_cost: medium
@@ -46,26 +86,40 @@ G1_component_wise_eval:
     **Insurance**: a policy-wording bot answering "is cataract surgery covered
     in year 1?"
   rule_of_thumb: >-
-    score the retriever and the generator separately
-  source_ref: evals-situation-to-technique.md § G
+    score the retriever and the generator separately; end-to-end accuracy ≈
+    retrieval recall@k × generator accuracy given gold context
+  source_ref: G-rag-systems.md § G1
   extraction_notes: >-
     Typed `metric` on what it produces (two numbers), although the Use cell
-    describes an eval DESIGN, which reads as a procedure. This is the first
-    record in G's build order per AGENT.md section 5 ("retrieval recall@k
-    before faithfulness"), and that edge is EL-116's to write
+    describes an eval DESIGN, which reads as a procedure. THE GATE FOR THE
+    SECTION: G:292 splits the score here and G:293-299 hangs G2, G3, G4, G5
+    and G7 beneath it, so `unlocks` names all five and each of the five
+    carries `recall_at_k_measured: true`. requires stays EMPTY here, and has
+    to: G1 is what satisfies the gate, and a record requiring its own output
+    could never become ready - nothing in the schema would catch that, so it
+    is a hand rule (finding F7). Neither of G1's own figures is a bound -
+    "200-300 questions" is a range and "roughly 40 questions" per
+    annotator-hour is a rate (both G:33) - so requires holds no number.
+    required_tools stays [vector_store]: the ticket's section-wide pair is
+    vector_store + source_doc_read, but labelling gold passages is a capture
+    act and is recorded in required_signals, and adding source_doc_read here
+    would make G1 UNAVAILABLE in the very trace EL-116 requires to be READY.
+    source_doc_read is carried by G6 and G8, the two records that must open a
+    document to run at all. The product rule in rule_of_thumb is G:20
+    verbatim
 
 G2_oracle_context_test:
   section: G
   name: Oracle-context test + per-failure stage attribution
   type: diagnostic
   triggers_on_situation: [rag_answer, debugging_regression]
-  required_signals: ["gold passages exist for the failing queries", "each failure can be inspected and tagged"]
+  required_signals: ["gold passages exist for the failing queries", "each failure can be inspected and tagged", "the rank of the gold passage is recoverable past k, at least as far as the top 50, so \"ranked beyond k\" separates from \"not retrieved\""]
   required_tools: [vector_store]
   ladder_priority: null
-  requires: {}
+  requires: {recall_at_k_measured: true}
   produces: [stage_attribution]
   gates: false
-  companion_checks: []
+  companion_checks: [G1_component_wise_eval]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -80,24 +134,33 @@ G2_oracle_context_test:
   rule_of_thumb: >-
     replace retrieval with gold passages, and tag each failure as not
     retrieved / ranked too low / misread
-  source_ref: evals-situation-to-technique.md § G
+  source_ref: G-rag-systems.md § G2
   extraction_notes: >-
     The one diagnostic in G, and the only G row carrying a second situation
     member: "Isolating which stage broke" is a debugging act, so
-    debugging_regression is mapped alongside rag_answer
+    debugging_regression is mapped alongside rag_answer. Gated on G1 by
+    G:65's own words - "G1 gives you two averages. Attribution tells you what
+    share of the actual failures each stage causes" - which is also why G1 is
+    a companion rather than only an upstream edge: the shares are read
+    against the two averages. "100-200 end-to-end failures" (G:68) is a range
+    and is not in requires. G:69's top-50 depth IS a single number, but it
+    describes how far down to look rather than how much evidence is needed,
+    so it is a required_signal, not a threshold. unlocks is empty on purpose:
+    G:295 routes to a reranker and then to G4/G5 only when "ranked beyond k"
+    is the largest bucket, and no field can hold a condition on a bucket
 
 G3_faithfulness:
   section: G
   name: "Faithfulness: claim decomposition + NLI entailment against the retrieved context"
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["the answer can be split into atomic claims", "the retrieved context is recorded alongside the answer"]
+  required_signals: ["the answer can be split into atomic claims", "the retrieved context is recorded alongside the answer", "the claim decomposition has itself been validated on 50 answers first", "each claim is checked against the retrieved context only, never against the model's world knowledge"]
   required_tools: [llm_api]
   ladder_priority: null
-  requires: {}
+  requires: {recall_at_k_measured: true, claim_labels: 150}
   produces: [faithfulness_score, unsupported_claim_rate]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci, F1_gold_label_validation]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -112,24 +175,37 @@ G3_faithfulness:
     **Healthcare**: a hospital SOP bot adding a dosage the SOP never states
   rule_of_thumb: >-
     split the answer into atomic claims and check whether the context entails
-    each one
-  source_ref: evals-situation-to-technique.md § G
+    each one; faithfulness = entailed claims / total claims
+  source_ref: G-rag-systems.md § G3
   extraction_notes: >-
-    AGENT.md section 5 orders this AFTER G1's retrieval recall@k; the
-    dependency is EL-116's to encode as requires or unlocks
+    THE RECORD THE BUILD ORDER EXISTS FOR. AGENT.md section 5 and G:292 both
+    put recall@k first, so requires carries `recall_at_k_measured: true` and
+    G1 names this record in unlocks. The second requirement is G:102's
+    "Validate the entailment judge against 150+ human claim labels (Section
+    F)": a single lower bound, so it IS recorded, and it sits on the consumer
+    record exactly as A4 carries its own κ bars rather than leaving them to
+    F2. Note that this is G's figure, not F's - F:27 and F:30 say 150-200,
+    which is a range and stayed out of F1's requires, while G:102's "150+" is
+    a bound and is recorded here. The companion edge to F1 is that same line.
+    G:99's "Validate the decomposition on 50 answers first" is a bound too
+    and is deliberately NOT in requires: it validates the decomposition
+    prompt, not the judge whose verdict enters the metric, and is carried as
+    a required_signal instead - flagged in S16-REPORT.md as the one place
+    this stage drew the line by hand. Both numbers in produces are G:101's
+    "Report both"
 
 G4_ndcg:
   section: G
   name: nDCG@10 with graded relevance
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["graded relevance labels exist per query-passage pair", "the retrieved order is recorded"]
+  required_signals: ["graded relevance labels exist per query-passage pair, on a scale defined with examples, for example 3 exact match, 2 acceptable substitute, 1 related, 0 irrelevant", "the retrieved order is recorded", "results are pooled across every system being compared, so unlabelled results do not bias the comparison"]
   required_tools: [vector_store, human_labels]
   ladder_priority: null
-  requires: {}
+  requires: {recall_at_k_measured: true}
   produces: [ndcg_at_10]
   gates: statistical
-  companion_checks: []
+  companion_checks: [B6_bootstrap_ci, E2_metric_outcome_check]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -142,24 +218,38 @@ G4_ndcg:
   domain_scenario: >-
     **E-commerce**: product search for "cotton kurta for office under ₹1,500"
   rule_of_thumb: >-
-    discounted gain by rank position, normalised against the ideal order
-  source_ref: evals-situation-to-technique.md § G
+    discounted gain by rank position, normalised against the ideal order,
+    with gains discounted by log₂(rank + 1)
+  source_ref: G-rag-systems.md § G4
   extraction_notes: >-
-    capture_cost is high because graded relevance needs human labelling, which
-    is why human_labels is a required tool here and not on G5
+    capture_cost is high because graded relevance needs human labelling,
+    which is why human_labels is a required tool here and not on G5. Both
+    companions are the deep dive's own cross-references: G:135 "Report
+    nDCG@10 with a paired bootstrap CI (Section B)" is B6, and G:136 "Check
+    that nDCG predicts clicks or conversions on logged traffic before
+    optimising for it" is E2's metric-outcome check almost word for word.
+    B1_paired_evaluation is the other reading of "paired" and was declined:
+    B2 already names B6 alone for the same phrase. Gated on G1 by the section
+    flow (G:292-295) rather than by a sentence of G4's own, which makes this
+    the weaker of the five gates - stated as such in S16-REPORT.md, with the
+    argument for it being that G4's whole case is read against recall@k
+    ("Recall@k ignores order", G:130; the worked figure is recall flat at
+    0.83 while nDCG moves). Every number in How-to is a range - a 0-3 scale,
+    the top 10-20 results, 200-500 queries (G:133-134) - so requires holds no
+    count
 
 G5_mrr_hit_at_k:
   section: G
   name: MRR and Hit@k
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["exactly one document is correct per query", "the rank of that document is recoverable"]
+  required_signals: ["exactly one document is correct per query", "the rank of that document is recoverable", "results are broken down by query type, because an MRR average hides query classes that systematically fail"]
   required_tools: [vector_store]
   ladder_priority: null
-  requires: {}
+  requires: {recall_at_k_measured: true}
   produces: [mrr, hit_at_k]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -174,25 +264,35 @@ G5_mrr_hit_at_k:
     **Banking**: finding the one RBI master circular that governs a compliance
     query
   rule_of_thumb: >-
-    MRR = mean of 1/rank of the single correct document
-  source_ref: evals-situation-to-technique.md § G
+    MRR = mean of 1/rank of the single correct document, and Hit@k = the
+    share of queries where it appears in the top k; report Hit@1, Hit@3 and
+    MRR together
+  source_ref: G-rag-systems.md § G5
   extraction_notes: >-
-    G4 and G5 are alternatives chosen by the data ("Ranking quality matters"
-    vs "Only one right document exists"), so conflicts_with is arguably the
-    right edge between them. Left empty per the stage's rule; flagged for EL-116
+    S12 flagged a conflicts_with edge to G4 for this stage to decide, and the
+    answer is NO. The corpus does state the exclusivity (G:164 "If there are
+    several valid documents, use nDCG", and the two mirrored mistakes at
+    G:151 and G:181), but it is conditional on a data property - whether one
+    right document exists per query - that lives in required_signals as free
+    text. Both records trigger on rag_answer and nothing else, so a
+    conflicts_with edge would fire on every RAG session and suppress one of
+    them unconditionally. This is S13's finding F4 - conflicts_with has no
+    scope - in its sharpest form, and is reported, not forced. produces keeps the generic hit_at_k rather than
+    hit_at_1 and hit_at_3, because the lookup row names Hit@k and G:165's
+    "Hit@1, Hit@3 and MRR together" is carried in rule_of_thumb
 
 G6_unanswerable_set:
   section: G
   name: "Unanswerable-question set: false-answer rate + abstention precision"
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["questions whose answer is absent from the corpus can be authored", "refusals are distinguishable from answers"]
-  required_tools: []
+  required_signals: ["questions whose answer is absent from the corpus can be authored", "refusals are distinguishable from answers", "near-miss questions are authored, not only plainly out-of-corpus ones", "partially answerable questions are included, because that is where invented details get added"]
+  required_tools: [source_doc_read]
   ladder_priority: null
   requires: {}
-  produces: [false_answer_rate, abstention_precision]
+  produces: [false_answer_rate, abstention_precision, over_abstention_rate]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
   conflicts_with: []
   analysis_cost: low
@@ -207,27 +307,43 @@ G6_unanswerable_set:
     **HR**: a policy bot asked "maternity leave for contract staff?" when the
     policy doesn't cover contractors
   rule_of_thumb: >-
-    mix in questions whose answer is *not* in the corpus and score correct
-    refusals
-  source_ref: evals-situation-to-technique.md § G
+    mix in questions whose answer is *not* in the corpus, typically 15-25% of
+    the set, and score correct refusals; set a bar for each, for example
+    false answers ≤ 5% and over-abstention ≤ 8%
+  source_ref: G-rag-systems.md § G6
   extraction_notes: >-
-    CLAUDE.md section 4 names this row's pair as "false-answer rate +
-    over-abstention", and the lookup's own wording is "abstention precision".
-    Both halves are kept in produces because reporting either alone is the
-    failure AGENT.md section 5 forbids
+    THREE numbers, not two. G:188 names the false-answer rate and abstention
+    PRECISION (of all refusals, how many questions really were
+    unanswerable); G:195 and G:196 name the OVER-ABSTENTION rate (of
+    answerable questions, how many were refused). They are different
+    quantities and both are in produces, which is why CLAUDE.md section 4 and
+    the lookup row appear to disagree - they are each naming one of them.
+    G:195's pairing is mandatory ("Refusing everything scores 0% on the first
+    and fails on the second") and CANNOT be expressed: companion_checks holds
+    record ids, there is one record, and splitting it would break the
+    one-row-one-record rule. The pairing therefore lives in produces with no
+    field marking it mandatory - the same gap D6 and H6 have, three instances
+    now, reported as S16-REPORT.md finding F9. G:196's two bars are stated
+    "for example", so they are bars on a produced metric and not readiness
+    thresholds: verbatim in rule_of_thumb, nowhere near requires or gates.
+    NOT gated on G1 - G:301 is a top-level branch of the flow. required_tools
+    is [source_doc_read] because establishing that an answer is absent means
+    reading the corpus; G:194's other authoring route, "real out-of-corpus
+    traffic", would add production_logs, and that was declined because the
+    near-miss route needs only the documents
 
 G7_context_precision:
   section: G
   name: Context precision + a distractor-injection robustness test
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["retrieved chunks can be judged relevant or not", "irrelevant chunks can be injected into the context"]
+  required_signals: ["retrieved chunks can be judged relevant or not", "irrelevant chunks can be injected into the context", "distractors are built from real near-misses: superseded documents, a sibling product's page, the same clause from a different contract"]
   required_tools: [vector_store]
   ladder_priority: null
-  requires: {}
+  requires: {recall_at_k_measured: true}
   produces: [context_precision, distractor_robustness]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -243,22 +359,34 @@ G7_context_precision:
     current ones
   rule_of_thumb: >-
     measure the share of retrieved chunks that are relevant, then inject
-    irrelevant chunks and re-measure
-  source_ref: evals-situation-to-technique.md § G
-  extraction_notes: null
+    irrelevant chunks and re-measure; a drop of more than 5 points means the
+    generator can't handle noise
+  source_ref: G-rag-systems.md § G7
+  extraction_notes: >-
+    Gated on G1 by the instrument rather than only by the flow: G:230 injects
+    distractors "into gold context", and gold context is G1's own apparatus,
+    so G7 cannot run before G1 exists. G:230's "A drop of more than 5 points
+    means the generator can't handle noise" is a stated single threshold on a
+    produced number, and there is still no field for one (S13 finding F2), so
+    it is verbatim in rule_of_thumb. required_tools stays [vector_store] and
+    does NOT gain human_labels, although G:228 labels chunk relevance for
+    150-200 queries: the distractor half of this record needs no labels at
+    all, and requiring them would take the whole record UNAVAILABLE for a
+    number that is only half of it. "1-3 distractors" and "150-200 queries"
+    are ranges
 
 G8_citation_precision_recall:
   section: G
   name: Citation precision and citation recall
   type: metric
   triggers_on_situation: [rag_answer]
-  required_signals: ["citations are shown to users and recorded per sentence", "each cited passage can be checked against the sentence it supports"]
-  required_tools: [llm_api]
+  required_signals: ["citations are shown to users and recorded per sentence", "each cited passage can be checked against the sentence it supports", "citation IDs are resolved by deterministic code before any judging: the document exists, and so does the page or paragraph"]
+  required_tools: [llm_api, source_doc_read]
   ladder_priority: null
   requires: {}
-  produces: [citation_precision, citation_recall]
+  produces: [citation_precision, citation_recall, answers_with_a_bad_citation_rate]
   gates: statistical
-  companion_checks: []
+  companion_checks: [C1_wilson_ci]
   unlocks: []
   conflicts_with: []
   analysis_cost: medium
@@ -274,7 +402,15 @@ G8_citation_precision_recall:
     advocates
   rule_of_thumb: >-
     "Precision: does each cited passage support its sentence? Recall: is every claim cited?"
-  source_ref: evals-situation-to-technique.md § G
+  source_ref: G-rag-systems.md § G8
   extraction_notes: >-
-    Both halves kept in one record: the lookup commits to one row naming both,
-    and splitting would invert the no-merge rule
+    Both halves kept in one record: the lookup commits to one row naming
+    both, and splitting would invert the no-merge rule. G:261's third number,
+    "the share of answers with at least one bad citation", is added to
+    produces - it is the figure a user actually experiences, the same reason
+    G3 reports its unsupported-claim rate. NOT gated on G1: G:304 is a
+    top-level branch. required_tools gains source_doc_read for G:262's ID
+    resolution, which has to open the document and find the page. G:259 says
+    the entailment check uses "the same NLI or judge setup as G3", which
+    arguably carries G3's 150-label validation bar here too; that was
+    declined as an inference rather than a statement, and is flagged instead

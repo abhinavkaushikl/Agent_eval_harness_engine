@@ -1,0 +1,33 @@
+# Fixture 2 - code generation with no sandbox. What remains is NOTHING.
+#
+# The answer is not "the next rung down": exactly one record triggers on
+# code_generation, so removing the sandbox empties the plan. A4's judge is not
+# a fallback here because it never matched - A-choosing-how-to-grade.md:15
+# routes only open-ended text to it ("It's open-ended text -> A4 LLM judge,
+# binary rubric"), and A:6 scopes a judge to "when nothing deterministic can
+# see the property". Code is not that case: A:21 is "if a line of code can
+# check it, a line of code should check it", and A:31 measures the cost of
+# judging code instead of running it - an LLM judge scored 79% where execution
+# scored 68%, passing 22 queries that returned the wrong rows.
+#
+# SO THE AMBIGUITY IS REAL AND IS FLAGGED, NOT RESOLVED: A's ladder says prefer
+# the highest rung that CAN answer the question, which implies falling to a
+# lower rung when execution is impossible. The registry says otherwise, because
+# A3, A4 and A5 all trigger on other artifacts. The corpus implies a fallback
+# in principle; the triggers deny one in practice. This fixture asserts the
+# empty plan rather than inventing the fallback.
+#
+# This is the honest answer and it is also a finding: see S19-REPORT.md section 4.
+# The plan's whole content is one permission request.
+name: code_generation_no_sandbox
+given:
+  situations: [code_generation]
+  available_tools: [test_runner]
+  evidence: {samples: 1, runs: 1}
+expect:
+  ready: []
+  pending: {}
+  unavailable:
+    A1_execution_based: [sandbox]
+  companions: {}
+  prohibited: []

@@ -45,11 +45,11 @@ A developer, often pairing with an AI coding assistant, who wants to know *"is w
 
 ### 3.1 Plan view (the core artifact, readable without explanation)
 ```
-READY        A1_execution_based · A3_deterministic
+READY        A1_execution_based · A3_normalised_exact_match
 PENDING      B3_mcnemar        needs discordant_pairs: 25, have 8
-             C3_noise_floor    needs runs: 3, have 1
+             C3_repeat_runs    needs runs: 5, have 1
 UNAVAILABLE  H7_trajectory     missing: trace_capture
-PROHIBITED   accuracy          rare_class: "flag nothing" scores 99.8%
+PROHIBITED   accuracy          rare_class: "flag nothing" scores 97% at 3% prevalence
 ```
 Four states, always visible:
 | State | Meaning to the user |

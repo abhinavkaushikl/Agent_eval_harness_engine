@@ -1,0 +1,77 @@
+# Fixture 11 - BLOCKED, AWAITING A HUMAN RULING. Not loaded by the suite.
+#
+# The `.BLOCKED.yaml` suffix keeps this out of the fixture glob on purpose.
+# CLAUDE.md section 7.4 says to stop and flag rather than edit a fixture to make
+# it pass, and the ticket for this stage says the same in more words: "Do not
+# quietly change the fixture, and do not quietly change the record."
+#
+# THE SPECIFICATION, from TASKS.md group 6:
+#   11. new_judge_built, 60 labels, kappa 0.71 -> judge MAY GATE
+#
+# THE CORPUS SAYS OTHERWISE, TWICE, VERBATIM:
+#   F-trusting-your-grader.md:20  "κ ≥ 0.6 before using a grader at all, and
+#                                  κ ≥ 0.8 before letting it gate a release."
+#   F-trusting-your-grader.md:72  "Use a grader only at 0.6 or above, and gate
+#                                  releases only at 0.8 or above."
+#   F-trusting-your-grader.md:27  "VALIDATE AGAINST 150-200 HUMAN GOLD LABELS
+#                                  BEFORE USE" (the record's own heading)
+#
+# So kappa 0.71 clears the USE bar and fails the GATE bar, and 60 labels is
+# well under the 150-200 the same record is named for. The records agree with
+# the corpus: F2_cohens_kappa.requires carries
+# {judge_human_kappa_to_trust: 0.6, judge_human_kappa_to_gate: 0.8}, recorded
+# by S13 and re-confirmed by S15 against both lines above.
+#
+# WHAT THE REGISTRY ACTUALLY PRODUCES for the specified inputs, traced by hand:
+#   ready:   [F1_gold_label_validation, F7_one_call_per_criterion,
+#             F8_few_shot_from_disagreements]
+#   pending: F2_cohens_kappa: "needs judge_human_kappa_to_gate: 0.8, have 0.71"
+#   i.e. THE JUDGE MAY BE USED AND MAY NOT GATE - the opposite of the
+#   fixture's stated expectation.
+#
+# A THIRD POINT, which is why the label count is not a side issue:
+#   F-trusting-your-grader.md:73  "Bootstrap κ (Section B6). A κ of 0.65 on 150
+#                                  items can have a CI running from 0.52 to
+#                                  0.77."
+#   On 60 labels the interval around 0.71 is wider still and would straddle
+#   0.6, so at this sample size even "may be used" is not demonstrated. The two
+#   numbers in the specification pull against each other: 60 labels is too few
+#   to establish the kappa that the fixture then wants to act on.
+#
+# THE OPTIONS, for the ruling. Nothing below is implemented.
+#
+#   A. Fix the fixture's expectation, keep its inputs.
+#      expect: F2 pending on the gate bar; the judge may be used, not gate.
+#      Cost: nothing. The fixture then tests the 0.6/0.8 split, which is the
+#      more useful assertion anyway - it is the only fixture that would
+#      distinguish the two bars from each other.
+#      This is the recommended option.
+#
+#   B. Fix the fixture's inputs, keep "may gate".
+#      Change to 150 labels and kappa 0.82. Then F2 is ready, the judge may
+#      gate, and the fixture agrees with F:20, F:72 and F:27 at once.
+#      Cost: nothing, and it loses the 0.6-vs-0.8 distinction that option A
+#      captures. Consider taking BOTH A and B as two fixtures, at the cost of
+#      one over the 20 TASKS.md budgets for.
+#
+#   C. Change the records so 0.71 may gate.
+#      Requires overruling F:20 and F:72, which state 0.8 in the imperative.
+#      This is the invented-number failure CLAUDE.md section 3 forbids and is
+#      listed only for completeness. Not recommended.
+#
+#   D. Decide that the kappa bars do not belong in `requires` at all.
+#      This is the deeper question S17-REPORT.md section 4 (Q1) raises as
+#      finding F2: a TRUST bar placed in the READINESS field suppresses the
+#      record entirely instead of reporting it with its calibration state. If
+#      the bars move to a new field, this fixture's shape changes with them and
+#      option A's expect block is what the record would look like in the
+#      meantime.
+#
+# When the ruling lands, rename this file to 11_<name>.yaml with the agreed
+# `expect` block and it joins the suite. The `given` block below needs no
+# change under options A or D.
+name: new_judge_sixty_labels_kappa_point_seven_one
+given:
+  situations: [new_judge_built]
+  available_tools: [human_labels, llm_api]
+  evidence: {gold_labels: 60, fail_cases: 60, judge_human_kappa_to_trust: 0.71, judge_human_kappa_to_gate: 0.71, majority_samples: 3}

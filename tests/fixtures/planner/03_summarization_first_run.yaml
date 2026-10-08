@@ -1,0 +1,29 @@
+# Fixture 3 - summarization, first run. NOTHING IS READY, and that is the point.
+#
+# A4 is the only record that triggers on summarization. Its requires carries the
+# two kappa bars verbatim from F-trusting-your-grader.md:20 and F:72 - "κ ≥ 0.6
+# before using a grader at all, and κ ≥ 0.8 before letting it gate a release" -
+# so on a first run, with no human agreement measured, the judge is pending.
+#
+# TWO THINGS THIS FIXTURE PINS, both raised in S17-REPORT.md section 4 (Q1):
+#   1. The length-bias companion does NOT appear. A4 names
+#      E3_length_controlled_win_rate (AGENT.md section 5: "any judge score is
+#      reported with output length"), but step 6 forces companions only for
+#      READY records, so a pending host takes its mandated companion with it.
+#   2. available_tools must include llm_api. A4 requires `llm_api`; granting
+#      only `llm_api_cross_family` leaves it UNAVAILABLE instead of PENDING,
+#      because the registry has no tool subsumption. TASKS.md's own example
+#      granted only the cross-family tool and would have asserted the wrong
+#      bucket. See S19-REPORT.md section 5.
+name: summarization_first_run
+given:
+  situations: [summarization]
+  available_tools: [llm_api, llm_api_cross_family, source_doc_read]
+  evidence: {samples: 1, runs: 1}
+expect:
+  ready: []
+  pending:
+    A4_judge_binary_criteria: "needs judge_human_kappa_to_trust: 0.6, have 0; judge_human_kappa_to_gate: 0.8, have 0"
+  unavailable: {}
+  companions: {}
+  prohibited: []

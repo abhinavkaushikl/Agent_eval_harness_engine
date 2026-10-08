@@ -1,0 +1,27 @@
+# Fixture 9 - two candidates, two paired runs, FORTY discordant pairs.
+# McNemar is ready.
+#
+# 40 >= 25, so B3 moves from pending to ready and the plan can report a
+# significance test. The pair 8/40 straddles B3's recorded threshold from
+# either side; nothing else about the three fixtures changes.
+#
+# E1_per_item_diff stays pending on `runs`, because `discordant_pairs` and
+# `runs` are different evidence keys and this fixture states only the first.
+# That is deliberate: TASKS.md group 6 says to keep evidence minimal, holding
+# only what the fixture tests.
+name: two_candidates_forty_discordant
+given:
+  situations: [two_candidates]
+  available_tools: []
+  evidence: {paired_runs: 2, discordant_pairs: 40}
+expect:
+  ready: [B1_paired_evaluation, B3_mcnemar]   # both statistics, id order
+  pending:
+    E1_per_item_diff: "needs runs: 2, have 0"
+  unavailable:
+    B2_pairwise_preference: [llm_api]
+    H4_cost_per_success: [cost_api]
+  companions:
+    B1_paired_evaluation: [E1_per_item_diff]
+    B3_mcnemar: [E1_per_item_diff]
+  prohibited: []

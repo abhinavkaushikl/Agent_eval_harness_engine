@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 
 import pytest
-from tests.conftest import MASTER_LOOKUP, require_corpus_files
+from tests.conftest import MASTER_LOOKUP, SECTION_FILES, require_corpus_files
 from tests.test_corpus_shape import EXPECTED_TOTAL, _lookup_rows
 
 from evalloop.registry.integrity import SECTIONS, check_integrity
@@ -125,9 +125,107 @@ def test_every_domain_scenario_keeps_its_domain_prefix(
         assert record.domain_scenario.startswith("**"), record.id
 
 
-def test_every_record_cites_the_master_lookup(
+#: Sections whose records have been enriched from their deep dive, so their
+#: ``source_ref`` names the deep-dive subsection rather than the master lookup.
+#: One stage adds one or two letters: S13 added A and B, S14 added C and D, and
+#: so on. **S17 added I and J, which completes it** -- all ten sections are
+#: here, so the master-lookup branch below is now unreachable. It is kept
+#: rather than deleted, because it is what would catch a record regressing to
+#: a section-level citation, and because the assertion after it derives the set
+#: from the records and so cannot silently go stale either way.
+ENRICHED_SECTIONS: frozenset[str] = frozenset("ABCDEFGHIJ")
+
+#: A deep-dive subsection heading, e.g. ``# I1 – CI REGRESSION GATE: ...``.
+#: The corpus separates the id from the title with an en dash; the pattern
+#: accepts any non-word separator so a later hyphen edit does not break the
+#: sweep, and anchors on the id so ``# I1`` never matches ``# I10``.
+_DEEP_DIVE_SUBSECTION = "^#+\\s*{record_number}\\b"
+
+
+def test_every_record_cites_its_source(
     records: tuple[TechniqueRecord, ...],
 ) -> None:
-    """EL-110 to EL-112 extract from the lookup only; deep dives are EL-113's."""
+    """Skeleton records cite the lookup; enriched ones cite their own subsection.
+
+    S10 to S12 extracted from the master lookup only, so every record cited
+    ``<lookup> § <letter>``. The enrichment stages read the deep dives and
+    upgrade the citation to ``<deep dive> § <id number>``, which is the whole
+    point of the field: a threshold's provenance has to be precise enough to
+    re-check by hand, and "section B" is not, while "§ B3" is.
+    """
     for record in records:
-        assert record.source_ref == f"{MASTER_LOOKUP} § {record.section}", record.id
+        if record.section in ENRICHED_SECTIONS:
+            expected = f"{SECTION_FILES[record.section]} § {record.id.split('_')[0]}"
+        else:
+            expected = f"{MASTER_LOOKUP} § {record.section}"
+        assert record.source_ref == expected, record.id
+
+
+def test_enriched_sections_are_the_ones_that_left_the_lookup(
+    records: tuple[TechniqueRecord, ...],
+) -> None:
+    """``ENRICHED_SECTIONS`` is derived from the records, so it cannot go stale.
+
+    Without this, forgetting to add a letter after an enrichment stage would
+    leave the test above asserting the *old* citation for a section that had
+    moved on, and forgetting to remove one would assert a citation nobody
+    wrote. Either way the guard would silently stop guarding.
+    """
+    moved = {
+        record.section
+        for record in records
+        if record.source_ref != f"{MASTER_LOOKUP} § {record.section}"
+    }
+    assert moved == set(ENRICHED_SECTIONS)
+
+
+def test_every_source_ref_resolves_in_the_corpus(
+    corpus_dir: Path, records: tuple[TechniqueRecord, ...]
+) -> None:
+    """Every citation names a file that exists and a heading inside it.
+
+    ``test_every_record_cites_its_source`` checks the *shape* of the string --
+    that it is spelled the way the stage agreed. That is not the same as the
+    citation being true. This resolves it: the file is opened, and the
+    subsection heading is found in it. ``AGENT.md`` §5 is the rule being
+    enforced -- "every threshold traces to a ``source_ref`` that resolves in
+    ``knowledge rules/``", because an unresolvable citation is an invented
+    number with extra steps.
+
+    What this catches that nothing else does: a renamed or deleted deep-dive
+    heading, a record citing ``§ I10`` when the file stops at I9, and a whole
+    section file disappearing while the records keep pointing into it. All
+    three leave the registry loading cleanly and every other test green.
+
+    Reported for every record at once rather than failing on the first, the
+    same reason the loader aggregates: with 73 citations, one at a time is a
+    week of round trips.
+    """
+    require_corpus_files(corpus_dir)
+    problems: list[str] = []
+    text_cache: dict[str, str] = {}
+    for record in records:
+        filename, separator, subsection = record.source_ref.partition(" § ")
+        if not separator:
+            problems.append(
+                f"{record.id}: source_ref {record.source_ref!r} is not "
+                "'<filename> § <subsection>'"
+            )
+            continue
+        path = corpus_dir / filename
+        if not path.is_file():
+            problems.append(
+                f"{record.id}: source_ref names {filename!r}, which is not a file in "
+                f"{corpus_dir}. Corpus filenames are declared in tests/conftest.py"
+            )
+            continue
+        if filename not in text_cache:
+            text_cache[filename] = path.read_text(encoding="utf-8")
+        pattern = _DEEP_DIVE_SUBSECTION.format(record_number=re.escape(subsection))
+        if not re.search(pattern, text_cache[filename], re.MULTILINE):
+            problems.append(
+                f"{record.id}: {filename} has no heading for {subsection!r}. The "
+                "citation points at a subsection that does not exist, so the "
+                "record's thresholds cannot be re-checked by hand"
+            )
+    assert not problems, "\n".join(problems)
