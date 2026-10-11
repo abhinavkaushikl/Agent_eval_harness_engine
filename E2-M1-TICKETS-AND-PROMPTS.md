@@ -41,16 +41,16 @@ off.** See §3.
 | EL-202 | T8 Episodic store (SQLite) | Story | 1 | — | — | ✅ Done — `EL-202-REPORT.md` |
 | EL-209 | T14 LLM client + router | Story | 1 | *fixture-20 ruling* | EL-210 | ✅ Done under option (b) — `EL-209-REPORT.md` |
 | EL-201 | T7 Metric store (JSONL) | Story | 1 | 🔒G0 | EL-206, EL-213 | ✅ Done ahead of 🔒G0 — `EL-201-REPORT.md` |
-| EL-204 | T9 Classifier heuristics | Story | 1.5 | 🔒G0 | EL-205, EL-214 | Blocked |
-| EL-205 | T10 Oracle harvester | Story | 1.5 | EL-204 | EL-207, EL-210 | Blocked |
-| EL-206 | T11 Sandbox runner | Story | 1.5 | EL-201, **EL-014** | EL-207, EL-208 | Blocked |
-| EL-207 | T12 Execution grader | Story | 2 | EL-206, EL-205, **EL-015** | EL-211 | Blocked |
+| EL-204 | T9 Classifier heuristics | Story | 1.5 | 🔒G0 | EL-205, EL-214 | ✅ Done ahead of 🔒G0 — `EL-204-REPORT.md` |
+| EL-205 | T10 Oracle harvester | Story | 1.5 | EL-204 | EL-207, EL-210 | ✅ Done ahead of 🔒G0 — `EL-205-REPORT.md` |
+| EL-206 | T11 Sandbox runner | Story | 1.5 | EL-201, **EL-014** | EL-207, EL-208 | ✅ Done — `EL-206-REPORT.md` |
+| EL-207 | T12 Execution grader | Story | 2 | EL-206, EL-205, **EL-015** | EL-211 | ✅ Done ahead of 🔒G0 — `EL-207-REPORT.md` |
 | EL-208 | T13 Deterministic grader | Story | 1 | EL-206, **EL-015** | EL-214 | Blocked |
-| EL-210 | T15 Test author (signature-only) | Story | 2 | EL-209, EL-205 | EL-214 | Blocked |
-| EL-213 | Evidence assembler **(new)** | Story | 0.5 | EL-201, EL-203 | EL-214 | Blocked |
-| EL-211 | T17 `summary.md` renderer | Task | 0.5 | EL-207, EL-213 | EL-214 | Blocked |
-| EL-214 | One-shot run driver **(new)** | Story | 1 | EL-204→EL-211, EL-213 | EL-212 | Blocked |
-| EL-212 | 🔒 Gate 1: toy repo, broken function | Gate | 0.5 | EL-214 | E3 (Track V) | Blocked |
+| EL-210 | T15 Test author (signature-only) | Story | 2 | EL-209, EL-205 | EL-214 | ✅ Done ahead of 🔒G0 — `EL-210-REPORT.md` |
+| EL-213 | Evidence assembler **(new)** | Story | 0.5 | EL-201, EL-203 | EL-214 | ✅ Done ahead of 🔒G0 — `EL-213-REPORT.md` |
+| EL-211 | T17 `summary.md` renderer | Task | 0.5 | EL-207, EL-213 | EL-214 | ✅ Done ahead of 🔒G0 — `EL-211-REPORT.md` |
+| EL-214 | One-shot run driver **(new)** | Story | 1 | EL-204→EL-211, EL-213 | EL-212 | ✅ Done ahead of 🔒G0 — `EL-214-REPORT.md` |
+| EL-212 | 🔒 Gate 1: toy repo, broken function | Gate | 0.5 | EL-214 | E3 (Track V) | 📋 Packet ready — `GATE1-REVIEW-PACKET.md` (Reading A; awaiting your sign-off) |
 
 **\* EL-209 is Ready only if M1 makes no outbound call on an unredacted artifact.** See §4.3.
 

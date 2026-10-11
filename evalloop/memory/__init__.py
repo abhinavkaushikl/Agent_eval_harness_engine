@@ -29,6 +29,15 @@ from evalloop.memory.case import (
     TimeoutCap,
     content_hash,
 )
+from evalloop.memory.evidence import (
+    Bar,
+    EvidenceGroup,
+    EvidenceItem,
+    EvidenceReport,
+    SESSION_FACT_KEYS,
+    assemble_evidence,
+    assemble_report,
+)
 from evalloop.memory.episodic import (
     SCHEMA_VERSION,
     Classification,
@@ -54,6 +63,13 @@ from evalloop.memory.metric_store import (
 
 __all__ = [
     "SCHEMA_VERSION",
+    "Bar",
+    "EvidenceGroup",
+    "EvidenceItem",
+    "EvidenceReport",
+    "SESSION_FACT_KEYS",
+    "assemble_evidence",
+    "assemble_report",
     "CaseKind",
     "CaseResult",
     "FailureClass",
