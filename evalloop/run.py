@@ -66,6 +66,7 @@ from evalloop.grade.verdict import Limits
 from evalloop.memory.case import CaseResult, OracleConfidence, Verdict, content_hash
 from evalloop.memory.evidence import SESSION_FACT_KEYS, assemble_evidence
 from evalloop.memory.metric_store import MetricStore, Run
+from evalloop.capability import CapabilityBroker
 from evalloop.plan.planner import Plan, plan
 from evalloop.registry.loader import RECORDS_DIR, load_records
 from evalloop.registry.schema import TechniqueRecord
@@ -293,6 +294,14 @@ def check(
     # run, so the report is complete, but the sandbox is never entered.
     already_run = run_id in set(store.runs())
 
+    # The capability broker owns what is granted; the planner's available tools come from it, not a
+    # private list. In M1 the real capabilities are the local sandbox and test runner (plus reading
+    # the repo and its docs); the LLM tools are deliberately not granted (option (b)).
+    broker = CapabilityBroker()
+    for tool in _M1_TOOLS:
+        broker.grant(tool, granted_by="evalloop (M1 defaults)", reason="M1 runs a sandbox and a test runner locally")
+    granted_tools = tuple(sorted(broker.available_tools(), key=lambda t: t.value))
+
     for file, rel, source in sources:
         result = classify_file(file)
         if result.abstention is not None:
@@ -302,7 +311,7 @@ def check(
         for situation, conf in result.labels:
             situations_seen[situation] = max(situations_seen.get(situation, 0.0), conf)
 
-        plan_result = plan(all_records, situations, _M1_TOOLS, evidence)
+        plan_result = plan(all_records, situations, granted_tools, evidence)
         last_plan = plan_result
         for line in _permission_request(plan_result):
             if line not in acc.permissions:
@@ -356,7 +365,7 @@ def check(
     outcome, outcome_notes = _outcome(acc)
     acc.notes.extend(outcome_notes)
     ordered_situations = tuple(sorted(situations_seen.items(), key=lambda kv: (-kv[1], kv[0].value)))
-    summary_plan = last_plan if last_plan is not None else plan(all_records, (), _M1_TOOLS, evidence)
+    summary_plan = last_plan if last_plan is not None else plan(all_records, (), granted_tools, evidence)
     session = Session(
         run_id=run_id,
         situations=ordered_situations,

@@ -22,6 +22,13 @@ from evalloop.capability.llm import (
     RetryPolicy,
     Usage,
 )
+from evalloop.capability.broker import (
+    Availability,
+    Caps,
+    CapabilityBroker,
+    CapabilityError,
+    Grant,
+)
 from evalloop.capability.router import (
     BudgetExhausted,
     CostLedger,
@@ -35,6 +42,11 @@ from evalloop.capability.router import (
 
 __all__ = [
     "APIError",
+    "Availability",
+    "Caps",
+    "CapabilityBroker",
+    "CapabilityError",
+    "Grant",
     "AnthropicHTTPTransport",
     "BudgetExhausted",
     "Clearance",
