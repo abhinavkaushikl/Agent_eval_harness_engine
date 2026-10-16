@@ -1,25 +1,25 @@
-# E3 / Track V â Connectors + MCP client â tickets and developer prompts
+# E3 / Track V Ã¢ÂÂ Connectors + MCP client Ã¢ÂÂ tickets and developer prompts
 
-*Written for: the engineer(s) building Track V. Read Â§0 and Â§2 before any ticket â every ticket
+*Written for: the engineer(s) building Track V. Read ÃÂ§0 and ÃÂ§2 before any ticket Ã¢ÂÂ every ticket
 below leans on the safety spine described there, and two of them contradict a committed decision in
 ways you must resolve before you write code.*
 
-**Window:** 9 Nov â 4 Dec Â· ~18.5 days. **Theme:** the generated code is run against the *real*
-world â a real database, a real vector store â which `ARCHITECTURE.md` Â§1 calls "the single most
-dangerous capability in the product." Track V is the discovery â consent â read-only envelope â
+**Window:** 9 Nov Ã¢ÂÂ 4 Dec ÃÂ· ~18.5 days. **Theme:** the generated code is run against the *real*
+world Ã¢ÂÂ a real database, a real vector store Ã¢ÂÂ which `ARCHITECTURE.md` ÃÂ§1 calls "the single most
+dangerous capability in the product." Track V is the discovery Ã¢ÂÂ consent Ã¢ÂÂ read-only envelope Ã¢ÂÂ
 validation subsystem that makes that safe.
 
 ---
 
-## 0. Inherited context â trust this over the doc text, and say in each report which way you went
+## 0. Inherited context Ã¢ÂÂ trust this over the doc text, and say in each report which way you went
 
-The seven M0/M1 warnings still hold (Gate 0 open; F2; F8; blocked fixtures 11/14/20; `PLAN.md` Â§5
+The seven M0/M1 warnings still hold (Gate 0 open; F2; F8; blocked fixtures 11/14/20; `PLAN.md` ÃÂ§5
 not a spec; six dead situations; EL-014 timeout semantics settled). Track V adds four of its own:
 
 1. **Track V cannot start until Gate 1 is signed off (EL-212) and Gate 0 is closed.** Every ticket
    here `Depends on EL-212`. Gate 1's packet is written but **awaiting human sign-off**, and it
    passed under "Reading A" (re-ran an existing test). Do not build on top of an unsigned gate.
-2. **Connectors shell out; they never import a database driver.** `ARCHITECTURE.md` Â§6.3 and the
+2. **Connectors shell out; they never import a database driver.** `ARCHITECTURE.md` ÃÂ§6.3 and the
    `CLAUDE.md` rule it recommends: Postgres/MySQL go through `psql`/`mysql` on `PATH` (decision
    `EL-006`), SQLite and HTTP vector stores (Qdrant/Weaviate/Chroma) need no driver at all. A
    `psycopg`/`qdrant-client` import in `evalloop/connect/` is a review failure. The one escape hatch
@@ -27,8 +27,8 @@ not a spec; six dead situations; EL-014 timeout semantics settled). Track V adds
    connector's.
 3. **F8 bites hardest here.** `unlocks` is read by **no planner step**, so "faithfulness is blocked
    until recall@k is measured" is **not** enforced by the registry's `unlocks` edges. The RAG build
-   order must be enforced some other way â `G3_faithfulness` already carries
-   `requires: {recall_at_k_measured: true, â¦}`, which *is* a readiness bar (EL-213 produces that
+   order must be enforced some other way Ã¢ÂÂ `G3_faithfulness` already carries
+   `requires: {recall_at_k_measured: true, Ã¢ÂÂ¦}`, which *is* a readiness bar (EL-213 produces that
    key), so the RAG runner must set `recall_at_k_measured` only after recall@k actually runs, and
    let readiness do the gating. If you rely on `unlocks`, faithfulness will run first and the gate
    is a lie. Say in your report which mechanism you used.
@@ -37,7 +37,7 @@ not a spec; six dead situations; EL-014 timeout semantics settled). Track V adds
    EL-307 here is an MCP **client** connector (EvalLoop *consumes* someone else's read-only MCP
    server). Do not build the server in this track.
 
-**Two conflicts with committed decisions â resolve before coding, don't silently pick one:**
+**Two conflicts with committed decisions Ã¢ÂÂ resolve before coding, don't silently pick one:**
 
 - **EL-301 vs EL-007 on transport.** The board summary says "JSON-RPC over stdio **+ HTTP**."
   Decision `EL-007` says transport **before Gate V is stdio only**; Streamable HTTP is "deferred to a
@@ -47,7 +47,7 @@ not a spec; six dead situations; EL-014 timeout semantics settled). Track V adds
   with no real broker behind it. EL-302 is the real broker; make the M1 driver route through it
   rather than keeping a second, poorer copy of the logic.
 
-Where two of our own docs disagree on a number, **the corpus file decides** â open it, copy
+Where two of our own docs disagree on a number, **the corpus file decides** Ã¢ÂÂ open it, copy
 verbatim, and report which doc was wrong.
 
 ---
@@ -56,29 +56,29 @@ verbatim, and report which doc was wrong.
 
 | Key | Summary | Type | Est | Depends on | Done when |
 |---|---|---|---|---|---|
-| EL-301 | MCP protocol core (JSON-RPC 2.0, stdlib) | Story | 2 | EL-007, EL-212 | â Done ahead of ðG1 â `EL-301-REPORT.md` (built to 2026-07-28; "handshake" reworded â see report) |
-| EL-302 | V1 Capability broker (grants, consent, expiry, budget) | Story | 1.5 | EL-212 | ✅ Done ahead of 🔒G1 — `EL-302-REPORT.md` |
-| EL-303 | V2 Connector discovery with provenance | Story | 1.5 | EL-302 | Candidates cite file and line; zero connections attempted |
-| EL-304 | V3 Production-suspected classification | Story | 1 | EL-303 | prod host â default deny + type-to-confirm |
-| EL-305 | V4 Read-only envelope + audit log | Story | 1.5 | EL-304 | `DROP TABLE` rejected before it is sent |
-| EL-306 | V5 Connector protocol + SQLite | Story | 1 | EL-305 | probe / describe / read work |
-| EL-307 | MCP client connector | Story | 1.5 | EL-301, EL-306 | An external MCP DB server is queried through the envelope |
-| EL-308 | V6 Postgres + MySQL via CLI | Story | 1 | EL-306, EL-006 | Missing CLI â UNAVAILABLE, not a crash |
-| EL-309 | V7 Vector store (Qdrant, HTTP) | Story | 1 | EL-306 | Collections enumerated read-only |
+| EL-301 | MCP protocol core (JSON-RPC 2.0, stdlib) | Story | 2 | EL-007, EL-212 | Ã¢ÂÂ Done ahead of Ã°ÂÂÂG1 Ã¢ÂÂ `EL-301-REPORT.md` (built to 2026-07-28; "handshake" reworded Ã¢ÂÂ see report) |
+| EL-302 | V1 Capability broker (grants, consent, expiry, budget) | Story | 1.5 | EL-212 | â Done ahead of ðG1 â `EL-302-REPORT.md` |
+| EL-303 | V2 Connector discovery with provenance | Story | 1.5 | EL-302 | ✅ Done ahead of 🔒G1 — `EL-303-REPORT.md` |
+| EL-304 | V3 Production-suspected classification | Story | 1 | EL-303 | ✅ Done ahead of 🔒G1 — `EL-304-REPORT.md` (prod host → default deny + type-to-confirm) |
+| EL-305 | V4 Read-only envelope + audit log | Story | 1.5 | EL-304 | ✅ Done ahead of 🔒G1 — `EL-305-REPORT.md` (`DROP TABLE` rejected before it is sent) |
+| EL-306 | V5 Connector protocol + SQLite | Story | 1 | EL-305 | ✅ Done ahead of 🔒G1 — `EL-306-REPORT.md` (probe / describe / read work, all read-only) |
+| EL-307 | MCP client connector | Story | 1.5 | EL-301, EL-306 | ✅ Done ahead of 🔒G1 — `EL-307-REPORT.md` (external MCP server queried through the envelope) |
+| EL-308 | Postgres/MySQL over CLI (no driver) | Story | 1.5 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-308-REPORT.md` (psql/mysql shelled out; missing CLI = clean UNAVAILABLE) |
+| EL-309 | Vector store (Qdrant over HTTP) | Story | 1.5 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-309-REPORT.md` (urllib only; collections + embedding model enumerated) |
 | EL-310 | File + prompt-registry connectors | Story | 1 | EL-307 | Prompts and files usable as eval inputs |
-| EL-311 | V8 SQL validator (execution match) | Story | 1.5 | EL-308 | Reordered JOINs pass; hallucinated column hard-fails |
-| EL-312 | V9 RAG stage 1: recall@k | Story | 1 | EL-309 | Faithfulness refuses to run before recall |
-| EL-313 | V10 RAG stage 2 (ceiling, attribution, faithfulness, distractors, unanswerables) | Story | 1.5 | EL-312 | Each stage reported separately |
-| EL-314 | V11 End-state verification | Story | 1 | EL-306 | A false "done" is caught against real state |
-| EL-315 | ð Gate V | Gate | 0.5 | EL-311, EL-313, EL-314 | DB + vector store discovered and validated unprompted |
+| EL-311 | SQL execution grading (result sets) | Story | 2 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-311-REPORT.md` (runs SQL vs a snapshot; never compares text) |
+| EL-312 | RAG recall@k + faithfulness gate | Story | 1.5 | EL-309 | ✅ Done ahead of 🔒G1 — `EL-312-REPORT.md` (recall@k w/ CI; faithfulness gated via requires, not unlocks) |
+| EL-313 | RAG ladder stages (separate) | Story | 2 | EL-312 | ✅ Done ahead of 🔒G1 — `EL-313-REPORT.md` (ceiling/attribution/faithfulness/robustness/unanswerable/citation, no blended score) |
+| EL-314 | End-state verification | Story | 1 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-314-REPORT.md` (verdict from real state; a false "done" is caught) |
+| EL-315 | Ã°ÂÂÂ Gate V | Gate | 0.5 | EL-311, EL-313, EL-314 | DB + vector store discovered and validated unprompted |
 
-**Critical path:** `EL-302 â EL-303 â EL-304 â EL-305 â EL-306 â {EL-308 â EL-311, EL-309 â EL-312 â EL-313, EL-314} â EL-315`. EL-301/EL-307 (MCP) run in parallel off EL-306.
+**Critical path:** `EL-302 Ã¢ÂÂ EL-303 Ã¢ÂÂ EL-304 Ã¢ÂÂ EL-305 Ã¢ÂÂ EL-306 Ã¢ÂÂ {EL-308 Ã¢ÂÂ EL-311, EL-309 Ã¢ÂÂ EL-312 Ã¢ÂÂ EL-313, EL-314} Ã¢ÂÂ EL-315`. EL-301/EL-307 (MCP) run in parallel off EL-306.
 
 ---
 
 ## 2. The safety spine (every ticket depends on this)
 
-`ARCHITECTURE.md` Â§6: **DISCOVER â PROPOSE â CONSENT â PROBE (read-only envelope)**, and Â§9's
+`ARCHITECTURE.md` ÃÂ§6: **DISCOVER Ã¢ÂÂ PROPOSE Ã¢ÂÂ CONSENT Ã¢ÂÂ PROBE (read-only envelope)**, and ÃÂ§9's
 guards. In one paragraph so you don't re-derive it fifteen times:
 
 - **Discover** scans for *evidence* of endpoints and **makes no connection and reads no credential**.
@@ -86,12 +86,12 @@ guards. In one paragraph so you don't re-derive it fifteen times:
   operations requested, and row/time caps.
 - **Consent** is explicit, per-endpoint, revocable, session-default; `production-suspected` requires
   typing the endpoint name and defaults to **deny**.
-- **Probe** happens only inside the **read-only envelope**: DDL/DML (`DROP`/`DELETE`/`UPDATE`/â¦)
-  rejected by AST *before transmission*, a read-only transaction, and row/byte caps â three
+- **Probe** happens only inside the **read-only envelope**: DDL/DML (`DROP`/`DELETE`/`UPDATE`/Ã¢ÂÂ¦)
+  rejected by AST *before transmission*, a read-only transaction, and row/byte caps Ã¢ÂÂ three
   independent layers. Any technique that genuinely needs to write gets a **scratch schema or a
   restored snapshot, never the live schema**.
-- **One component owns credentials** â the capability broker. A grader never reads an env var
-  (`ARCHITECTURE.md` Â§9: "Credentials in a grader: impossible by construction"). Everything crosses
+- **One component owns credentials** Ã¢ÂÂ the capability broker. A grader never reads an env var
+  (`ARCHITECTURE.md` ÃÂ§9: "Credentials in a grader: impossible by construction"). Everything crosses
   the **redactor** at the boundary; nothing unredacted is persisted, and the PHI gate (fixture 20's
   open ruling) lives here.
 
@@ -102,28 +102,28 @@ Files: everything new lives under **`evalloop/connect/`** (component 16) and **`
 
 ## 3. Tickets
 
-### EL-301 â MCP protocol core (JSON-RPC 2.0, stdlib)
-**Type:** Story Â· **Est:** 2 Â· **Depends:** EL-007, EL-212 Â· **Blocks:** EL-307 Â·
+### EL-301 Ã¢ÂÂ MCP protocol core (JSON-RPC 2.0, stdlib)
+**Type:** Story ÃÂ· **Est:** 2 ÃÂ· **Depends:** EL-007, EL-212 ÃÂ· **Blocks:** EL-307 ÃÂ·
 **Done when:** handshake, tool listing and tool calls work against a reference MCP server.
 
-**Files** â `evalloop/mcp/{__init__,wire,client,facade}.py` Â· `tests/test_mcp_core.py`,
+**Files** Ã¢ÂÂ `evalloop/mcp/{__init__,wire,client,facade}.py` ÃÂ· `tests/test_mcp_core.py`,
 `tests/fixtures/mcp/reference_server.py`
 
 **Subtasks**
-- [ ] JSON-RPC 2.0 over **stdio** (framing, ids, request/response/notification, error objects) â stdlib only
+- [ ] JSON-RPC 2.0 over **stdio** (framing, ids, request/response/notification, error objects) Ã¢ÂÂ stdlib only
 - [ ] Protocol revision pinned to **`2026-07-28`** (EL-007); the handshake negotiates it
-- [ ] `initialize` â `tools/list` â `tools/call`, with `_meta` and wire error codes handled
-- [ ] A **typed faÃ§ade**: frozen dataclasses + two `Protocol`s that contain **no wire concept** â the only module that knows JSON-RPC is `evalloop/mcp/`
+- [ ] `initialize` Ã¢ÂÂ `tools/list` Ã¢ÂÂ `tools/call`, with `_meta` and wire error codes handled
+- [ ] A **typed faÃÂ§ade**: frozen dataclasses + two `Protocol`s that contain **no wire concept** Ã¢ÂÂ the only module that knows JSON-RPC is `evalloop/mcp/`
 - [ ] A stdlib **reference MCP server** fixture to test against (no network, no SDK)
 
 **Acceptance criteria**
 - [ ] Handshake, `tools/list`, and a `tools/call` round-trip succeed against the reference server
 - [ ] A malformed frame and a wire error code surface as typed errors, not a crash
 - [ ] `grep` proves JSON-RPC/`_meta`/`resultType` appear in `evalloop/mcp/` and **nowhere else**
-- [ ] No third-party import anywhere (`CLAUDE.md` Â§1)
+- [ ] No third-party import anywhere (`CLAUDE.md` ÃÂ§1)
 
-**Out of scope** The MCP **server** (`evaluate`/`verify_claim`, gated behind Gate 3 â EL-008).
-Streamable HTTP transport (deferred by EL-007 â see Â§0).
+**Out of scope** The MCP **server** (`evaluate`/`verify_claim`, gated behind Gate 3 Ã¢ÂÂ EL-008).
+Streamable HTTP transport (deferred by EL-007 Ã¢ÂÂ see ÃÂ§0).
 
 **Gotchas** The board says "stdio + HTTP"; EL-007 says **stdio only before Gate V**. Build stdio,
 split HTTP into its own ticket, and get the conflict ruled on before you start.
@@ -131,7 +131,7 @@ split HTTP into its own ticket, and get the conflict ruled on before you start.
 ````text
 WHAT I WANT
 evalloop/mcp/: the JSON-RPC 2.0 core for talking to MCP servers, standard library only, with a
-typed faÃ§ade so the rest of the project never sees a wire concept.
+typed faÃÂ§ade so the rest of the project never sees a wire concept.
 
 WHAT IS IN THE TICKET
 Decision EL-007: MCP is stdlib, no SDK. ONE package, evalloop/mcp/, is the only place that knows
@@ -143,7 +143,7 @@ THE RESULT I WANT TO SEE
    subprocess/json only, no SDK, no third-party import.
 2. initialize -> tools/list -> tools/call working against a REFERENCE MCP SERVER you write as a
    stdlib fixture. The test needs no network and no external server.
-3. A typed faÃ§ade: frozen dataclasses and two Protocols that carry NO wire concept. A grep proves
+3. A typed faÃÂ§ade: frozen dataclasses and two Protocols that carry NO wire concept. A grep proves
    "JSON-RPC", "_meta", "resultType" appear only under evalloop/mcp/. If the spec revs, one module
    changes, not three tracks -- that is the whole point of the seam.
 4. A malformed frame and a server error code become a TYPED error, never a crash or a bare dict.
@@ -161,23 +161,23 @@ HTTP, and wrapping an MCP server as a Connector (that is EL-307).
 
 ---
 
-### EL-302 â V1 Capability broker (grants, consent, expiry, budget)
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-212 Â· **Blocks:** EL-303 Â·
+### EL-302 Ã¢ÂÂ V1 Capability broker (grants, consent, expiry, budget)
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-212 ÃÂ· **Blocks:** EL-303 ÃÂ·
 **Done when:** an ungranted tool resolves to UNAVAILABLE, naming the missing tool.
 
-**Files** â `evalloop/capability/broker.py` (extends the EL-209 capability layer) Â·
+**Files** Ã¢ÂÂ `evalloop/capability/broker.py` (extends the EL-209 capability layer) ÃÂ·
 `tests/test_capability_broker.py`
 
 **Subtasks**
 - [ ] A grant: a tool/endpoint, who granted it, why, an **expiry**, and caps (rows/time/budget)
 - [ ] `check(tool) -> granted | UNAVAILABLE(reason)`; the planner's `Tool` enum is the vocabulary
-- [ ] **Only this component reads a credential** â the source scan from EL-209 is extended to cover `evalloop/connect/`
+- [ ] **Only this component reads a credential** Ã¢ÂÂ the source scan from EL-209 is extended to cover `evalloop/connect/`
 - [ ] Consent is explicit, per-endpoint, **revocable**, session-default; nothing is granted by default
 - [ ] A session **budget** with a hard stop (reuse EL-209's `CostLedger` shape)
 - [ ] Expiry: a lapsed grant reverts to UNAVAILABLE without a restart
 
 **Acceptance criteria**
-- [ ] An ungranted tool â `UNAVAILABLE`, naming the tool and how to grant it; a test proves it
+- [ ] An ungranted tool Ã¢ÂÂ `UNAVAILABLE`, naming the tool and how to grant it; a test proves it
 - [ ] A granted-then-expired tool reverts to UNAVAILABLE
 - [ ] A source scan proves no module outside the capability layer reads a credential (incl. `connect/`)
 - [ ] The M1 run driver (EL-214) routes `Plan.unavailable` through this broker, not a private copy
@@ -185,7 +185,7 @@ HTTP, and wrapping an MCP server as a Connector (that is EL-307).
 **Out of scope** Discovery (EL-303), the read-only envelope (EL-305). The PHI gate's *policy* is
 fixture 20's open ruling; wire the hook, don't invent the policy.
 
-**Gotchas** This is the component `ARCHITECTURE.md` Â§9 hangs "credentials in a grader: impossible by
+**Gotchas** This is the component `ARCHITECTURE.md` ÃÂ§9 hangs "credentials in a grader: impossible by
 construction" on. If a connector can reach an env var, the whole safety claim is void.
 
 ````text
@@ -219,28 +219,28 @@ PHI gate's policy (fixture 20, open). Wire the PHI hook; do not rule on it.
 
 ---
 
-### EL-303 â V2 Connector discovery with provenance
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-302 Â· **Blocks:** EL-304 Â·
+### EL-303 Ã¢ÂÂ V2 Connector discovery with provenance
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-302 ÃÂ· **Blocks:** EL-304 ÃÂ·
 **Done when:** candidates are listed with file-and-line provenance and **zero connections** are attempted.
 
-**Files** â `evalloop/connect/discover.py` Â· `tests/test_connector_discovery.py`,
+**Files** Ã¢ÂÂ `evalloop/connect/discover.py` ÃÂ· `tests/test_connector_discovery.py`,
 `tests/fixtures/connect/sample_repo/`
 
 **Subtasks**
 - [ ] Scan for *evidence* only: `.env`/`.env.example` keys, `docker-compose.yml` services, `settings.py`/config modules, client call sites (`psycopg.connect`, `create_engine`, `QdrantClient`, `chromadb.HttpClient`), `alembic.ini`, listening local ports
 - [ ] Each candidate carries **provenance**: "because `docker-compose.yml:14` defines `qdrant:6333`"
-- [ ] **No connection, no credential read** â text/`ast` scan only
+- [ ] **No connection, no credential read** Ã¢ÂÂ text/`ast` scan only
 - [ ] Deterministic ordering
 
 **Acceptance criteria**
 - [ ] Run on `tests/fixtures/connect/sample_repo/`: every candidate cites the file and line it came from
 - [ ] A network guard (sockets patched to raise) is live during the whole test and nothing trips it
-- [ ] A credential *value* never appears in a candidate â only its source
+- [ ] A credential *value* never appears in a candidate Ã¢ÂÂ only its source
 
 **Out of scope** Connecting, classifying prod (EL-304), probing (EL-306).
 
-**Gotchas** This is "auto-login to the vector DB," the capability Â§1 names most dangerous, done
-safely: the trick is that discovery is **inert** â it finds *evidence*, never opens anything.
+**Gotchas** This is "auto-login to the vector DB," the capability ÃÂ§1 names most dangerous, done
+safely: the trick is that discovery is **inert** Ã¢ÂÂ it finds *evidence*, never opens anything.
 
 ````text
 WHAT I WANT
@@ -268,16 +268,16 @@ OUT OF SCOPE: connecting (EL-306), production classification (EL-304), the read-
 
 ---
 
-### EL-304 â V3 Production-suspected classification
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-303 Â· **Blocks:** EL-305 Â·
+### EL-304 Ã¢ÂÂ V3 Production-suspected classification
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-303 ÃÂ· **Blocks:** EL-305 ÃÂ·
 **Done when:** a prod host defaults to deny and requires typing the endpoint name to confirm.
 
-**Files** â `evalloop/connect/classify_endpoint.py` Â· `tests/test_endpoint_classification.py`
+**Files** Ã¢ÂÂ `evalloop/connect/classify_endpoint.py` ÃÂ· `tests/test_endpoint_classification.py`
 
 **Subtasks**
 - [ ] Classify each candidate `local` / `staging` / `unknown` / **`production-suspected`**
-- [ ] Heuristics (`ARCHITECTURE.md` Â§6.1): host/db name matching `prod|live|www`, a non-RFC1918 host, a credential from a secrets manager rather than `.env`
-- [ ] `production-suspected` â default **deny** + **type-to-confirm** (type the endpoint name)
+- [ ] Heuristics (`ARCHITECTURE.md` ÃÂ§6.1): host/db name matching `prod|live|www`, a non-RFC1918 host, a credential from a secrets manager rather than `.env`
+- [ ] `production-suspected` Ã¢ÂÂ default **deny** + **type-to-confirm** (type the endpoint name)
 - [ ] The classification travels with the consent request (EL-302)
 
 **Acceptance criteria**
@@ -317,28 +317,28 @@ anything.
 
 ---
 
-### EL-305 â V4 Read-only envelope + audit log
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-304 Â· **Blocks:** EL-306 Â·
+### EL-305 Ã¢ÂÂ V4 Read-only envelope + audit log
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-304 ÃÂ· **Blocks:** EL-306 ÃÂ·
 **Done when:** `DROP TABLE` is rejected before it is sent.
 
-**Files** â `evalloop/connect/envelope.py`, `evalloop/connect/audit.py` Â·
+**Files** Ã¢ÂÂ `evalloop/connect/envelope.py`, `evalloop/connect/audit.py` ÃÂ·
 `tests/test_readonly_envelope.py`
 
 **Subtasks**
-- [ ] **Three independent layers** (`ARCHITECTURE.md` Â§9): reject DDL/DML by AST **before transmission**, open a **read-only transaction**, and enforce **row/byte caps** (grant parameters, EL-006)
+- [ ] **Three independent layers** (`ARCHITECTURE.md` ÃÂ§9): reject DDL/DML by AST **before transmission**, open a **read-only transaction**, and enforce **row/byte caps** (grant parameters, EL-006)
 - [ ] Any write-needing technique gets a **scratch schema or restored snapshot**, never the live schema
-- [ ] An **audit log**: every statement sent, its endpoint, caps in force, and the result shape â append-only, redacted
+- [ ] An **audit log**: every statement sent, its endpoint, caps in force, and the result shape Ã¢ÂÂ append-only, redacted
 - [ ] The statement-safety check is dialect-aware enough to catch `DROP`/`DELETE`/`UPDATE`/`INSERT`/`ALTER`/`TRUNCATE`/`GRANT`
 
 **Acceptance criteria**
-- [ ] `DROP TABLE â¦`, a `DELETE`, and an `UPDATE` are each rejected **before** any bytes leave, with a named reason â tested
+- [ ] `DROP TABLE Ã¢ÂÂ¦`, a `DELETE`, and an `UPDATE` are each rejected **before** any bytes leave, with a named reason Ã¢ÂÂ tested
 - [ ] A read-only transaction is proven (a write that slips the AST check still fails at the DB)
 - [ ] A query over the row cap is truncated/err'd per the cap, and the cap is recorded
 - [ ] Every sent statement appears in the audit log, redacted
 
 **Out of scope** The connector protocol (EL-306), SQL *correctness* grading (EL-311).
 
-**Gotchas** AST-before-send is layer one of three, not the only one â a parser miss must still hit
+**Gotchas** AST-before-send is layer one of three, not the only one Ã¢ÂÂ a parser miss must still hit
 a read-only transaction and a cap. "Three independent layers" is the contract.
 
 ````text
@@ -369,16 +369,16 @@ envelope only.
 
 ---
 
-### EL-306 â V5 Connector protocol + SQLite
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-305 Â· **Blocks:** EL-307, EL-308, EL-309, EL-314 Â·
+### EL-306 Ã¢ÂÂ V5 Connector protocol + SQLite
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-305 ÃÂ· **Blocks:** EL-307, EL-308, EL-309, EL-314 ÃÂ·
 **Done when:** `probe` / `describe` / `read` work.
 
-**Files** â `evalloop/connect/protocol.py`, `evalloop/connect/sqlite.py` Â·
+**Files** Ã¢ÂÂ `evalloop/connect/protocol.py`, `evalloop/connect/sqlite.py` ÃÂ·
 `tests/test_connector_sqlite.py`
 
 **Subtasks**
 - [ ] A `Connector` `Protocol`: `probe()` (reachable, read-only), `describe()` (schema/collections), `read(query)` (through the envelope)
-- [ ] First implementation: **SQLite** (stdlib â the no-driver case), under the EL-305 envelope
+- [ ] First implementation: **SQLite** (stdlib Ã¢ÂÂ the no-driver case), under the EL-305 envelope
 - [ ] `describe()` returns tables/columns (or collections) with no data read
 - [ ] Everything routed through the broker (EL-302) and the envelope (EL-305)
 
@@ -389,7 +389,7 @@ envelope only.
 
 **Out of scope** Postgres/MySQL (EL-308), vector stores (EL-309), MCP (EL-307).
 
-**Gotchas** SQLite is the reference because it needs no driver and no network â it proves the
+**Gotchas** SQLite is the reference because it needs no driver and no network Ã¢ÂÂ it proves the
 protocol and the envelope without the connection questions. Keep the protocol driver-agnostic so
 EL-308/309/307 are thin.
 
@@ -417,16 +417,16 @@ Keep SQLite driverless and the protocol backend-agnostic.
 
 ---
 
-### EL-307 â MCP client connector
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-301, EL-306 Â· **Blocks:** EL-310 Â·
+### EL-307 Ã¢ÂÂ MCP client connector
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-301, EL-306 ÃÂ· **Blocks:** EL-310 ÃÂ·
 **Done when:** an external MCP DB server is queried through the envelope.
 
-**Files** â `evalloop/connect/mcp_connector.py` Â· `tests/test_mcp_connector.py`
+**Files** Ã¢ÂÂ `evalloop/connect/mcp_connector.py` ÃÂ· `tests/test_mcp_connector.py`
 
 **Subtasks**
-- [ ] Wrap an external MCP server (via EL-301's client + faÃ§ade) as a `Connector` (probe/describe/read)
-- [ ] Every call goes through the EL-305 envelope and EL-302 broker â an MCP tool that writes is rejected like any other write
-- [ ] Only the EL-307 faÃ§ade is touched; no wire concept leaks out (EL-007)
+- [ ] Wrap an external MCP server (via EL-301's client + faÃÂ§ade) as a `Connector` (probe/describe/read)
+- [ ] Every call goes through the EL-305 envelope and EL-302 broker Ã¢ÂÂ an MCP tool that writes is rejected like any other write
+- [ ] Only the EL-307 faÃÂ§ade is touched; no wire concept leaks out (EL-007)
 
 **Acceptance criteria**
 - [ ] A read-only query against the reference MCP server returns rows through `read()`
@@ -444,7 +444,7 @@ evalloop/connect/mcp_connector.py: turn ANY external MCP server into a read-only
 MCP-exposed database or tool becomes an eval input through the same probe/describe/read contract.
 
 WHAT IS IN THE TICKET
-Decision EL-007: a typed faÃ§ade is the only thing outside evalloop/mcp/ that is touched; no wire
+Decision EL-007: a typed faÃÂ§ade is the only thing outside evalloop/mcp/ that is touched; no wire
 concept leaks. Decision EL-008: this is the MCP CLIENT (we consume someone else's read-only server),
 NOT the EvalLoop MCP server, which stays gated behind Gate 3.
 
@@ -454,7 +454,7 @@ THE RESULT I WANT TO SEE
 2. A read-only query returns rows through read(); the test uses the stdlib reference server, no net.
 3. A write-shaped MCP tool call is rejected by the envelope BEFORE it is sent -- an MCP tool is not
    a hole in the read-only contract.
-4. Only the EL-307 faÃ§ade is used; a grep still shows JSON-RPC / _meta / resultType only under
+4. Only the EL-307 faÃÂ§ade is used; a grep still shows JSON-RPC / _meta / resultType only under
    evalloop/mcp/.
 
 OUT OF SCOPE: the EvalLoop MCP SERVER (evaluate/verify_claim -- Gate 3, EL-008) and HTTP transport.
@@ -463,27 +463,27 @@ We are the client here, never the server.
 
 ---
 
-### EL-308 â V6 Postgres + MySQL via CLI
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-306, EL-006 Â· **Blocks:** EL-311 Â·
+### EL-308 Ã¢ÂÂ V6 Postgres + MySQL via CLI
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-306, EL-006 ÃÂ· **Blocks:** EL-311 ÃÂ·
 **Done when:** a missing CLI resolves to UNAVAILABLE, not a crash.
 
-**Files** â `evalloop/connect/sql_cli.py` Â· `tests/test_sql_cli_connector.py`
+**Files** Ã¢ÂÂ `evalloop/connect/sql_cli.py` ÃÂ· `tests/test_sql_cli_connector.py`
 
 **Subtasks**
-- [ ] Postgres/MySQL connectors that **shell out to `psql`/`mysql`** â never import a driver (EL-006, `CLAUDE.md` rule)
-- [ ] The broker resolves the mechanism by EL-006's preference order; a missing CLI â **UNAVAILABLE** naming it and how to supply it
+- [ ] Postgres/MySQL connectors that **shell out to `psql`/`mysql`** Ã¢ÂÂ never import a driver (EL-006, `CLAUDE.md` rule)
+- [ ] The broker resolves the mechanism by EL-006's preference order; a missing CLI Ã¢ÂÂ **UNAVAILABLE** naming it and how to supply it
 - [ ] Inherits the developer's existing TLS/Kerberos/SSH config via the CLI
 - [ ] Row caps from the grant; everything through the envelope (EL-305)
 
 **Acceptance criteria**
 - [ ] With `psql` absent, the connector returns `UNAVAILABLE` naming `psql`, not a traceback
 - [ ] A read-only query against a local fixture Postgres returns result sets (skipped cleanly if no local server in CI)
-- [ ] No `psycopg`/`mysqlclient`/`PyMySQL` import exists in `evalloop/connect/` â a source scan proves it
+- [ ] No `psycopg`/`mysqlclient`/`PyMySQL` import exists in `evalloop/connect/` Ã¢ÂÂ a source scan proves it
 
 **Out of scope** SQL correctness grading (EL-311), driver auto-install (the broker's, EL-006).
 
 **Gotchas** The "no driver" rule is the one that keeps "stdlib only" from eroding. Shelling out also
-inherits the TLS/IAM/SSH the developer already has working â a feature, not a workaround.
+inherits the TLS/IAM/SSH the developer already has working Ã¢ÂÂ a feature, not a workaround.
 
 ````text
 WHAT I WANT
@@ -512,14 +512,14 @@ EL-006).
 
 ---
 
-### EL-309 â V7 Vector store (Qdrant, HTTP)
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-306 Â· **Blocks:** EL-312 Â·
+### EL-309 Ã¢ÂÂ V7 Vector store (Qdrant, HTTP)
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-306 ÃÂ· **Blocks:** EL-312 ÃÂ·
 **Done when:** collections are enumerated read-only.
 
-**Files** â `evalloop/connect/vector_qdrant.py` Â· `tests/test_vector_connector.py`
+**Files** Ã¢ÂÂ `evalloop/connect/vector_qdrant.py` ÃÂ· `tests/test_vector_connector.py`
 
 **Subtasks**
-- [ ] Qdrant over its **HTTP API via `urllib`** â no SDK (HTTP vector stores need no driver exception)
+- [ ] Qdrant over its **HTTP API via `urllib`** Ã¢ÂÂ no SDK (HTTP vector stores need no driver exception)
 - [ ] `describe()` enumerates collections and the **embedding model in use**; `read()` is a read-only search
 - [ ] Through the broker and envelope; a mutating HTTP verb is rejected
 
@@ -528,7 +528,7 @@ EL-006).
 - [ ] A write/delete HTTP call is rejected by the envelope
 - [ ] No `qdrant-client` import; `urllib` only
 
-**Out of scope** RAG metrics (EL-312/313), other stores (Weaviate/Chroma â same shape, later).
+**Out of scope** RAG metrics (EL-312/313), other stores (Weaviate/Chroma Ã¢ÂÂ same shape, later).
 
 **Gotchas** `describe()` must surface the **embedding model**, because a recall@k computed against
 a different embedding than the app uses is meaningless (G1).
@@ -556,15 +556,15 @@ later tickets).
 
 ---
 
-### EL-310 â File + prompt-registry connectors
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-307 Â· **Blocks:** â Â·
+### EL-310 Ã¢ÂÂ File + prompt-registry connectors
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-307 ÃÂ· **Blocks:** Ã¢ÂÂ ÃÂ·
 **Done when:** prompts and files are usable as eval inputs.
 
-**Files** â `evalloop/connect/files.py`, `evalloop/connect/prompts.py` Â·
+**Files** Ã¢ÂÂ `evalloop/connect/files.py`, `evalloop/connect/prompts.py` ÃÂ·
 `tests/test_file_prompt_connectors.py`
 
 **Subtasks**
-- [ ] A directory connector (source docs via `source_doc_read`) â read-only, gitignore-aware, size-capped
+- [ ] A directory connector (source docs via `source_doc_read`) Ã¢ÂÂ read-only, gitignore-aware, size-capped
 - [ ] A prompt-registry connector: prompt files on disk **and** MCP prompts (via EL-307)
 - [ ] Both expose content as eval inputs (a RAG question set's source docs; a prompt under test)
 
@@ -575,7 +575,7 @@ later tickets).
 
 **Out of scope** Using them in a metric (that's EL-312/313 and the judge track).
 
-**Gotchas** Source docs are the raw material for a RAG question set â keep the read gitignore-aware
+**Gotchas** Source docs are the raw material for a RAG question set Ã¢ÂÂ keep the read gitignore-aware
 and size-capped so it doesn't ingest `node_modules` or a 2 GB dump.
 
 ````text
@@ -590,7 +590,7 @@ from files or from MCP prompts (EL-307). These are read-only inputs, not live sy
 THE RESULT I WANT TO SEE
 1. A directory connector that reads source docs read-only, gitignore-aware and size-capped, exposing
    them as eval inputs.
-2. A prompt-registry connector for prompt files on disk AND MCP prompts (through EL-307's faÃ§ade),
+2. A prompt-registry connector for prompt files on disk AND MCP prompts (through EL-307's faÃÂ§ade),
    both usable through one interface.
 3. A binary or oversized file is skipped with a stated reason, never read into memory.
 4. Everything routed through the broker and the redactor at the boundary.
@@ -601,25 +601,25 @@ inputs available; it does not score anything.
 
 ---
 
-### EL-311 â V8 SQL validator (execution match)
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-308 Â· **Blocks:** EL-315 Â·
+### EL-311 Ã¢ÂÂ V8 SQL validator (execution match)
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-308 ÃÂ· **Blocks:** EL-315 ÃÂ·
 **Done when:** reordered JOINs pass and a hallucinated column hard-fails.
 
-**Files** â `evalloop/grade/sql_execution.py` Â· `tests/test_sql_validator.py`
+**Files** Ã¢ÂÂ `evalloop/grade/sql_execution.py` ÃÂ· `tests/test_sql_validator.py`
 
 **Subtasks**
 - [ ] **Schema-ground** the statement: every table/column must exist. A hallucinated column is a **hard fail, reported separately** from a logic failure (`A:39` classes incl. `unknown_column`)
-- [ ] Execute generated and reference SQL on a **frozen snapshot**; compare **result sets** â multiset equality, **order-insensitive unless the query has `ORDER BY`** (`ARCHITECTURE.md` Â§6.4)
-- [ ] **Seed distinguishing rows** so plausible wrong answers diverge (`A:36` â the `>`/`>=` row)
-- [ ] No-reference path: parses â / executes â / schema-grounded â / non-empty + type-consistent, then a cross-family judge as the **lowest** rung
+- [ ] Execute generated and reference SQL on a **frozen snapshot**; compare **result sets** Ã¢ÂÂ multiset equality, **order-insensitive unless the query has `ORDER BY`** (`ARCHITECTURE.md` ÃÂ§6.4)
+- [ ] **Seed distinguishing rows** so plausible wrong answers diverge (`A:36` Ã¢ÂÂ the `>`/`>=` row)
+- [ ] No-reference path: parses Ã¢ÂÂ / executes Ã¢ÂÂ / schema-grounded Ã¢ÂÂ / non-empty + type-consistent, then a cross-family judge as the **lowest** rung
 - [ ] **Never** report string similarity to a reference query as correctness (`A1` anti-pattern)
 - [ ] Carries `A1_execution_based`; pass rate travels with its Wilson interval (C1)
 
 **Acceptance criteria**
-- [ ] Two SQL statements that differ only by JOIN order / aliases return equal result sets â **pass**
-- [ ] A query selecting a non-existent column â **hard fail, class `unknown_column`**, distinct from a wrong-rows logic failure
+- [ ] Two SQL statements that differ only by JOIN order / aliases return equal result sets Ã¢ÂÂ **pass**
+- [ ] A query selecting a non-existent column Ã¢ÂÂ **hard fail, class `unknown_column`**, distinct from a wrong-rows logic failure
 - [ ] An `ORDER BY` query is graded order-sensitively; a non-`ORDER BY` query is not
-- [ ] No code path compares query *text* for correctness â a source check
+- [ ] No code path compares query *text* for correctness Ã¢ÂÂ a source check
 - [ ] The corpus's own figure is honoured: a reading that would reproduce exact-match's 41% over execution's 68% is the bug, not the target
 
 **Out of scope** Writes, end-state (EL-314), RAG (EL-312/313).
@@ -659,25 +659,25 @@ read-only envelope on a snapshot, never live data.
 
 ---
 
-### EL-312 â V9 RAG stage 1: recall@k
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-309 Â· **Blocks:** EL-313 Â·
+### EL-312 Ã¢ÂÂ V9 RAG stage 1: recall@k
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-309 ÃÂ· **Blocks:** EL-313 ÃÂ·
 **Done when:** faithfulness refuses to run before recall@k is measured.
 
-**Files** â `evalloop/grade/rag_recall.py` Â· `tests/test_rag_recall.py`
+**Files** Ã¢ÂÂ `evalloop/grade/rag_recall.py` ÃÂ· `tests/test_rag_recall.py`
 
 **Subtasks**
 - [ ] Compute **recall@k at the k the generator actually receives** (`G1`: recall@20 is irrelevant if the prompt gets 5)
-- [ ] Set the readiness fact `recall_at_k_measured = true` **only after** recall@k runs â so `G3_faithfulness`'s `requires` gates it (see F8 below)
+- [ ] Set the readiness fact `recall_at_k_measured = true` **only after** recall@k runs Ã¢ÂÂ so `G3_faithfulness`'s `requires` gates it (see F8 below)
 - [ ] Report recall@k with its interval; name the embedding model and the k used
 
 **Acceptance criteria**
 - [ ] recall@k computed against a fixture index at the real k, reported with a confidence interval
-- [ ] `G3_faithfulness` evaluated **before** recall@k has run resolves to **PENDING** `needs recall_at_k_measured: true, have false` â a test proves the ordering holds
+- [ ] `G3_faithfulness` evaluated **before** recall@k has run resolves to **PENDING** `needs recall_at_k_measured: true, have false` Ã¢ÂÂ a test proves the ordering holds
 - [ ] After recall@k runs, faithfulness is no longer blocked on that key
 
 **Out of scope** Faithfulness itself, attribution, distractors, unanswerables (all EL-313).
 
-**Gotchas â F8, read this.** `unlocks` is read by **no planner step**, so the "recall before
+**Gotchas Ã¢ÂÂ F8, read this.** `unlocks` is read by **no planner step**, so the "recall before
 faithfulness" edge in the registry **does not gate anything**. You must enforce the order through
 `requires`/readiness: faithfulness carries `requires: {recall_at_k_measured: true}`, and this
 ticket is the only thing that sets that fact true. If you lean on `unlocks`, faithfulness runs first.
@@ -714,31 +714,31 @@ unanswerables -- all EL-313.
 
 ---
 
-### EL-313 â V10 RAG stage 2
-**Type:** Story Â· **Est:** 1.5 Â· **Depends:** EL-312 Â· **Blocks:** EL-315 Â·
+### EL-313 Ã¢ÂÂ V10 RAG stage 2
+**Type:** Story ÃÂ· **Est:** 1.5 ÃÂ· **Depends:** EL-312 ÃÂ· **Blocks:** EL-315 ÃÂ·
 **Done when:** each stage is reported separately.
 
-**Files** â `evalloop/grade/rag_stages.py` Â· `tests/test_rag_stages.py`
+**Files** Ã¢ÂÂ `evalloop/grade/rag_stages.py` ÃÂ· `tests/test_rag_stages.py`
 
 **Subtasks**
 - [ ] **Oracle-context ceiling** (`G2`): replace retrieval with gold passages to find the generator's ceiling
 - [ ] **Per-failure stage attribution** (`G2`): tag each failure **not retrieved / ranked beyond k / misread**
-- [ ] **Faithfulness** (`G3`): atomic-claim decomposition + NLI/validated judge; report **mean faithfulness AND % of answers with â¥1 unsupported claim**
+- [ ] **Faithfulness** (`G3`): atomic-claim decomposition + NLI/validated judge; report **mean faithfulness AND % of answers with Ã¢ÂÂ¥1 unsupported claim**
 - [ ] **Distractor robustness** (`G7`) and **unanswerables** (`G6`: false-answer rate + over-abstention); **citation precision/recall** (`G8`)
-- [ ] **Each stage reported separately** â never one blended RAG score
-- [ ] The judge used for faithfulness must be **cross-family** and calibrated (Îº gate) â depends on the M4 judge
+- [ ] **Each stage reported separately** Ã¢ÂÂ never one blended RAG score
+- [ ] The judge used for faithfulness must be **cross-family** and calibrated (ÃÂº gate) Ã¢ÂÂ depends on the M4 judge
 
 **Acceptance criteria**
 - [ ] A run reports recall@k, gold-context ceiling, stage attribution, faithfulness (both numbers), distractor robustness, and unanswerable behaviour as **separate** lines, each with its interval
 - [ ] Faithfulness does not run until EL-312's fact is set (inherited gate)
-- [ ] The faithfulness judge is proven cross-family; it refuses to gate below the Îº threshold
+- [ ] The faithfulness judge is proven cross-family; it refuses to gate below the ÃÂº threshold
 
-**Out of scope** Building the judge itself (M4 / T33âT36) and the Îº calibration gate â this
+**Out of scope** Building the judge itself (M4 / T33Ã¢ÂÂT36) and the ÃÂº calibration gate Ã¢ÂÂ this
 *consumes* them.
 
 **Gotchas** This ticket has a **cross-track dependency on M4's judge**: faithfulness (`G3`) needs a
-validated cross-family judge, and `G3`'s own Îº bar is a readiness gate. If M4 isn't landed, the
-faithfulness stage is `PENDING`/`UNAVAILABLE`, not skipped â surface that honestly.
+validated cross-family judge, and `G3`'s own ÃÂº bar is a readiness gate. If M4 isn't landed, the
+faithfulness stage is `PENDING`/`UNAVAILABLE`, not skipped Ã¢ÂÂ surface that honestly.
 
 ````text
 WHAT I WANT
@@ -773,25 +773,25 @@ build them.
 
 ---
 
-### EL-314 â V11 End-state verification
-**Type:** Story Â· **Est:** 1 Â· **Depends:** EL-306 Â· **Blocks:** EL-315 Â·
+### EL-314 Ã¢ÂÂ V11 End-state verification
+**Type:** Story ÃÂ· **Est:** 1 ÃÂ· **Depends:** EL-306 ÃÂ· **Blocks:** EL-315 ÃÂ·
 **Done when:** a false "done" is caught against real state.
 
-**Files** â `evalloop/grade/end_state.py` Â· `tests/test_end_state.py`
+**Files** Ã¢ÂÂ `evalloop/grade/end_state.py` ÃÂ· `tests/test_end_state.py`
 
 **Subtasks**
-- [ ] Verify the **resulting state** (DB rows, files) through a read-only connector â **not** the transcript's claim (`A2`/`H2`)
-- [ ] A write-needing setup runs against a **scratch schema or restored snapshot** (`ARCHITECTURE.md` Â§6.2), never live
-- [ ] Carries `A2_end_state_verification`; honours its `requires` (resettable env â `H`)
+- [ ] Verify the **resulting state** (DB rows, files) through a read-only connector Ã¢ÂÂ **not** the transcript's claim (`A2`/`H2`)
+- [ ] A write-needing setup runs against a **scratch schema or restored snapshot** (`ARCHITECTURE.md` ÃÂ§6.2), never live
+- [ ] Carries `A2_end_state_verification`; honours its `requires` (resettable env Ã¢ÂÂ `H`)
 
 **Acceptance criteria**
-- [ ] An agent/script that *claims* "done" / "tests pass" but left the DB or files in the wrong state â **caught**, verdict from the real state
+- [ ] An agent/script that *claims* "done" / "tests pass" but left the DB or files in the wrong state Ã¢ÂÂ **caught**, verdict from the real state
 - [ ] The transcript's self-report is never used as evidence (`A` end-state rule)
 - [ ] Setup/writes happen only in a scratch schema or snapshot; the live schema is untouched (audit log proves it)
 
 **Out of scope** Full agent evals / pass^k / trace capture (M5, T43).
 
-**Gotchas** `ARCHITECTURE.md` Â§9: "Agent's 'tests pass' is false â independent re-run in a clean
+**Gotchas** `ARCHITECTURE.md` ÃÂ§9: "Agent's 'tests pass' is false Ã¢ÂÂ independent re-run in a clean
 sandbox; the transcript is never evidence." The claim is the thing under suspicion, not the source
 of truth.
 
@@ -821,21 +821,21 @@ ticket verifies end state for a single run.
 
 ---
 
-### EL-315 â ð Gate V
-**Type:** Gate Â· **Est:** 0.5 Â· **Depends:** EL-311, EL-313, EL-314 Â· **Blocks:** (Track V complete) Â·
+### EL-315 Ã¢ÂÂ Ã°ÂÂÂ Gate V
+**Type:** Gate ÃÂ· **Est:** 0.5 ÃÂ· **Depends:** EL-311, EL-313, EL-314 ÃÂ· **Blocks:** (Track V complete) ÃÂ·
 **Done when:** a DB **and** a vector store are discovered and validated **unprompted**.
 
-**Deliverable** â `GATEV-REVIEW-PACKET.md` + the sample repo it ran against (a committed fixture,
-placed so EvalLoop's own harvester does not ingest it â see Gate 1's F-G1a).
+**Deliverable** Ã¢ÂÂ `GATEV-REVIEW-PACKET.md` + the sample repo it ran against (a committed fixture,
+placed so EvalLoop's own harvester does not ingest it Ã¢ÂÂ see Gate 1's F-G1a).
 
 **What the packet must contain** (a document read in one sitting, every number with its interval):
 - [ ] The **oracle run first** (`E6`): a known-correct SQL statement and a known-good RAG answer through the same pipeline must score 100%, or the gate is void
-- [ ] Verbatim transcript of pointing EvalLoop at a repo with a Postgres (or SQLite) **and** a Qdrant endpoint, with **zero** instruction: discovery (with provenance) â consent â read-only probe â validation
+- [ ] Verbatim transcript of pointing EvalLoop at a repo with a Postgres (or SQLite) **and** a Qdrant endpoint, with **zero** instruction: discovery (with provenance) Ã¢ÂÂ consent Ã¢ÂÂ read-only probe Ã¢ÂÂ validation
 - [ ] **The safety envelope proven**: a generated `DROP TABLE` rejected before transmission; the audit log showing zero writes to a live schema
 - [ ] **Production default-deny demonstrated**: a prod-looking endpoint refused without the typed name
 - [ ] SQL validated by **execution match** (reordered JOINs pass, hallucinated column hard-fails); RAG reported **stage by stage** with faithfulness gated behind recall@k
 - [ ] A **negative control** (a correct query / faithful answer not flagged) and a **false negative** shown or its absence explained
-- [ ] The findings ledger EL-301âEL-314: nulls, interpreted thresholds, corpus-unsupported items, stale docs, open rulings
+- [ ] The findings ledger EL-301Ã¢ÂÂEL-314: nulls, interpreted thresholds, corpus-unsupported items, stale docs, open rulings
 - [ ] One paragraph: does this safely validate against real systems, and where is it weakest
 
 **Gotchas** Like Gate 1, do not write product code in the gate, do not fix a finding (report it),
@@ -883,9 +883,9 @@ readiness, not by the dead `unlocks` edge).
 1. **Sign off Gate 1 and close Gate 0.** Every ticket here `Depends on EL-212`; both gates are open.
 2. **Rule EL-301 transport** (stdio-only per EL-007 vs the board's "stdio + HTTP").
 3. **Confirm EL-302 supersedes** the M1 driver's stand-in permission logic (one broker).
-4. **The F8 mechanism** (EL-312/313): readiness-gated RAG ordering, since `unlocks` gates nothing â
+4. **The F8 mechanism** (EL-312/313): readiness-gated RAG ordering, since `unlocks` gates nothing Ã¢ÂÂ
    this is a correctness decision, not a preference.
-5. **M4 judge availability** for EL-313 faithfulness â Track V consumes it; if M4 hasn't landed,
+5. **M4 judge availability** for EL-313 faithfulness Ã¢ÂÂ Track V consumes it; if M4 hasn't landed,
    faithfulness is honestly `PENDING`, and the Gate V schedule should know that.
-6. **fixture 20 / PHI** â Track V is the first code to read real customer data; the redactor and the
+6. **fixture 20 / PHI** Ã¢ÂÂ Track V is the first code to read real customer data; the redactor and the
    PHI gate policy must be settled, because this is where they finally bite.

@@ -61,7 +61,9 @@ from pathlib import Path, PurePosixPath
 from evalloop._compat import StrEnum
 from evalloop.classify import Abstention, classify_file
 from evalloop.grade.execution import grade_execution
-from evalloop.grade.oracles import Artifact, OracleKind, harvest
+from evalloop.capability.llm import Clearance
+from evalloop.capability.router import Router
+from evalloop.grade.oracles import Artifact, AuthoredOracle, OracleKind, author_test, harvest
 from evalloop.grade.verdict import Limits
 from evalloop.memory.case import CaseResult, OracleConfidence, Verdict, content_hash
 from evalloop.memory.evidence import SESSION_FACT_KEYS, assemble_evidence
@@ -176,6 +178,58 @@ def _ready_grader_ids(plan_result: Plan, records: Mapping[str, TechniqueRecord])
     return [r.id for r in plan_result.ready if records[r.id].ladder_priority == 1]
 
 
+@dataclass(frozen=True, slots=True)
+class Author:
+    """The grant that lets the driver WRITE a test when none exists: a router and a clearance.
+
+    Both are supplied by the caller. This module never constructs a :class:`Clearance` (EL-209), so
+    authoring — and the egress it implies — is always something the operator switched on.
+    """
+
+    router: Router
+    clearance: Clearance
+    max_output_tokens: int = 1200
+    max_attempts: int = 2
+
+
+def _author_one(
+    *,
+    artifact: Artifact,
+    root: Path,
+    rel: str,
+    func: str,
+    author: Author | None,
+    limits: Limits,
+    workdir_root: str | None,
+    acc: _Accumulator,
+) -> AuthoredOracle | None:
+    """Author a test for one function, or explain in the notes why there is none. Never raises."""
+    if author is None:
+        return None
+    try:
+        outcome = author_test(
+            artifact,
+            root=root,
+            router=author.router,
+            clearance=author.clearance,
+            sandbox_limits=limits,
+            max_output_tokens=author.max_output_tokens,
+            max_attempts=author.max_attempts,
+            workdir_root=workdir_root,
+        )
+    except Exception as exc:  # a provider outage must not take the whole run down
+        acc.notes.append(f"{rel}::{func}: authoring failed — {type(exc).__name__}: {exc}")
+        return None
+    if outcome.oracle is None:
+        acc.notes.append(f"{rel}::{func}: {outcome.reason}")
+        return None
+    acc.notes.append(
+        f"{rel}::{func}: authored a LOW test with {outcome.oracle.served_model} "
+        f"(cost ${outcome.total_cost_usd})"
+    )
+    return outcome.oracle
+
+
 def _grade_one(
     *,
     artifact_rel: str,
@@ -186,6 +240,7 @@ def _grade_one(
     oracle_hash: str,
     run_id: str,
     prior: Run | None,
+    confidence: OracleConfidence = OracleConfidence.high,
     limits: Limits,
     seed: int,
     workdir_root: str | None,
@@ -205,7 +260,7 @@ def _grade_one(
         import_name=import_name,
         oracle_id=oracle_id,
         oracle_source=oracle_source,
-        oracle_confidence=OracleConfidence.high,
+        oracle_confidence=confidence,
         oracle_hash=oracle_hash,
         run_id=run_id,
         sandbox_limits=limits,
@@ -249,6 +304,7 @@ def check(
     seed: int = 0,
     wall_seconds: float = 30.0,
     workdir_root: str | os.PathLike[str] | None = None,
+    author: Author | None = None,
 ) -> RunResult:
     """Run the whole M1 loop on ``path`` and write ``summary.md``. One shot; returns a :class:`RunResult`.
 
@@ -338,6 +394,23 @@ def check(
             found = harvest(harvest_root, Artifact(harvest_path, func))
             tests = found.of_kind(OracleKind.test)
             if not tests:
+                # Nothing to grade against. With an author granted (a router AND a clearance, both
+                # supplied by the caller — this module never issues one), write a LOW test from the
+                # signature alone and grade that. Without one, say so; never invent a verdict.
+                authored = _author_one(
+                    artifact=Artifact(harvest_path, func), root=harvest_root, rel=rel, func=func,
+                    author=author, limits=limits, workdir_root=workdir_str, acc=acc,
+                )
+                if authored is not None:
+                    _grade_one(
+                        artifact_rel=rel, artifact_source=source, import_name=import_name,
+                        oracle_id=authored.oracle_id, oracle_source=authored.test_code,
+                        oracle_hash=content_hash(authored.test_code.encode("utf-8")),
+                        run_id=run_id, prior=prior, confidence=authored.confidence,
+                        limits=limits, seed=seed,
+                        workdir_root=workdir_str, acc=acc,
+                    )
+                    continue
                 acc.notes.append(f"{rel}::{func}: {found.reason or 'no test oracle'}")
                 continue
             for oracle in tests:

@@ -1,0 +1,4 @@
+{"query_id": "q1", "text": "how long do refunds take to process", "gold_ids": ["p1"]}
+{"query_id": "q2", "text": "are cancelled orders refunded automatically", "gold_ids": ["p3"]}
+{"query_id": "q3", "text": "how do I return an item I bought", "gold_ids": ["p4"]}
+{"query_id": "q4", "text": "do you offer international shipping delivery", "gold_ids": ["p5"]}
