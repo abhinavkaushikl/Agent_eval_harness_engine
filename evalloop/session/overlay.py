@@ -27,7 +27,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-__all__ = ["MOOD", "PALETTE", "Pose", "pose", "FIGURE_HEIGHT", "run_overlay"]
+__all__ = ["MOOD", "PALETTE", "Pose", "pose", "FIGURE_HEIGHT", "run_overlay", "signal_line"]
 
 
 MOOD = {
@@ -63,25 +63,41 @@ Point = tuple[float, float]
 
 @dataclass(frozen=True, slots=True)
 class Pose:
-    """One instant of the dance: how far he leans, how high he bobs, how high the glove hand is."""
+    """One instant of the dance. Secondary-motion fields default to 0 so simpler callers stay valid."""
 
-    lean: float   # figure units the TOP of the body travels; the shoes never move
-    bob: float    # vertical lift
-    arm: float    # 0 = hand down, 1 = hand raised
+    lean: float          # figure units the TOP of the body travels; the shoes never move
+    bob: float           # vertical lift
+    arm: float           # 0 = glove hand down, 1 = raised
+    hat_lag: float = 0.0  # extra lean on the hat+head only — follow-through, it trails the body
+    swing: float = 0.0    # the free (hanging) arm's counter-swing
+    squash: float = 0.0   # 0..1 vertical squash-and-stretch on the landing beat
 
 
 def pose(state: str, t: float) -> Pose:
-    """The pose for ``state`` at time ``t`` seconds — continuous, so the motion is fluid. Pure."""
+    """The pose for ``state`` at time ``t`` seconds. He DANCES only while evaluating; otherwise he
+    stands, with a small idle animation — the desktop-pet model. Continuous and eased. Pure."""
     if state == "evaluating":
-        return Pose(lean=13.0 * math.sin(t * 3.4), bob=1.4 * abs(math.sin(t * 6.8)),
-                    arm=0.5 + 0.5 * math.sin(t * 3.4 + 1.0))
+        w = 5.4  # the dance — fast, deep lean with follow-through
+        lean = 13.0 * math.sin(w * t)
+        return Pose(
+            lean=lean,
+            bob=2.4 * abs(math.sin(w * t)),
+            arm=0.55 + 0.45 * math.sin(2 * w * t),            # the glove pumps twice per lean
+            hat_lag=4.4 * math.sin(w * (t - 0.09)) - lean * 0.35,  # trails the body
+            swing=-0.6 * lean,                                 # free arm counter-swings
+            squash=0.09 * abs(math.sin(2 * w * t)),
+        )
     if state == "happy":
-        return Pose(lean=5.0 * math.sin(t * 3.0), bob=3.2 * abs(math.sin(t * 5.0)), arm=0.85)
-    if state in ("alarmed", "errored"):
-        return Pose(lean=3.0 * math.sin(t * 13.0), bob=0.0, arm=0.2)
-    if state == "unsure":
-        return Pose(lean=5.0 * math.sin(t * 1.3), bob=0.0, arm=0.12)
-    return Pose(lean=3.0 * math.sin(t * 1.1), bob=0.5 * math.sin(t * 2.2), arm=0.08)
+        hop = max(0.0, math.sin(2.4 * t))                      # a couple of little hops, then stands
+        return Pose(lean=1.2 * math.sin(2.4 * t), bob=4.5 * hop, arm=0.65, squash=0.12 * hop)
+    if state in ("alarmed", "errored"):                        # stands, leans back, a worried shiver
+        return Pose(lean=-1.8 + 0.8 * math.sin(10.0 * t), bob=0.0, arm=0.18,
+                    hat_lag=0.7 * math.sin(10.0 * t))
+    if state == "unsure":                                      # stands, head tilts, thinking
+        return Pose(lean=0.0, bob=0.0, arm=0.1, hat_lag=2.6 * math.sin(1.1 * t))
+    # idle: standing straight, just breathing with the faintest weight shift
+    return Pose(lean=0.8 * math.sin(0.5 * t), bob=0.0, arm=0.06,
+                hat_lag=0.35 * math.sin(0.5 * t - 0.3), squash=0.035 + 0.025 * math.sin(1.3 * t))
 
 
 def _ellipse_pts(cx: float, cy: float, rx: float, ry: float, n: int = 22) -> list[Point]:
@@ -95,87 +111,92 @@ def _rrect_pts(x0: float, y0: float, x1: float, y1: float, r: float) -> list[Poi
 
 
 def draw_figure(canvas: tk.Canvas, ox: float, oy: float, s: float, p: Pose, accent: str) -> None:
-    """Draw the minifigure, feet centred at (``ox``, ``oy``), scaled by ``s``, posed by ``p``."""
+    """Draw the minifigure, feet centred at (``ox``, ``oy``), scaled by ``s``, posed by ``p``.
+
+    Only the figure is drawn — no backdrop, no ring. Form comes from a soft second tone on his left
+    (shaded) side; life comes from the pose's lean, squash and follow-through.
+    """
     suit, hair, skin = PALETTE["suit"], PALETTE["hair"], PALETTE["skin"]
     shirt, tie, ink = PALETTE["shirt"], PALETTE["tie"], PALETTE["ink"]
+    shade = "#dedede"   # a soft shadow tone for his left side — subtle dimension, not a hard line
 
-    def at(x: float, y: float) -> Point:
-        """Figure space -> canvas, with the lean sheared in proportion to height above the shoes."""
-        dx = p.lean * (y / FIGURE_HEIGHT)
-        return (ox + (x + dx) * s, oy - (y + p.bob) * s)
+    def at(x: float, y: float, extra: float = 0.0) -> Point:
+        """Figure space -> canvas: squash the height, shear the lean (+``extra`` for follow-through)."""
+        ys = y * (1.0 - p.squash)
+        xs = x * (1.0 + 0.4 * p.squash)
+        dx = (p.lean + extra) * (ys / FIGURE_HEIGHT)
+        return (ox + (xs + dx) * s, oy - (ys + p.bob) * s)
 
-    def poly(pts: Sequence[Point], fill: str, outline: str = "", width: float = 1.0, smooth: bool = False) -> None:
+    def poly(pts: Sequence[Point], fill: str, outline: str = "", width: float = 1.0,
+             smooth: bool = False, extra: float = 0.0) -> None:
         flat: list[float] = []
         for x, y in pts:
-            cx, cy = at(x, y)
+            cx, cy = at(x, y, extra)
             flat += [cx, cy]
         canvas.create_polygon(flat, fill=fill, outline=outline, width=width, smooth=smooth)
 
     def limb(a: Point, b: Point, w: float, fill: str) -> None:
-        """A rounded limb: a dark underlay for the printed outline, then the colour on top."""
         ax, ay = at(*a)
         bx, by = at(*b)
-        canvas.create_line(ax, ay, bx, by, fill=ink, width=(w + 1.4) * s, capstyle="round")
+        canvas.create_line(ax, ay, bx, by, fill=ink, width=(w + 1.3) * s, capstyle="round")
         canvas.create_line(ax, ay, bx, by, fill=fill, width=w * s, capstyle="round")
 
-    # --- status ring at his feet (the only thing the figure's colours never say) ---
-    ring = _ellipse_pts(0, 1.5, 17, 3.2, 20)
-    poly(ring, fill="", outline=accent, width=1.3, smooth=True)
-
-    # --- legs: white trousers, black shoes and ankle band ---
+    # --- legs: white trousers (left leg shaded), black shoes + ankle band ---
     for sx in (-1, 1):
-        inner, outer = sx * 1.6, sx * 14.5
+        inner, outer = sx * 1.4, sx * 12.8
         x0, x1 = min(inner, outer), max(inner, outer)
-        poly([(x0, 6), (x1, 6), (x1, 35), (x0, 35)], fill=suit, outline=ink, width=0.9)      # trouser
-        poly([(x0, 0), (x1, 0), (x1, 6), (x0, 6)], fill=hair, outline=ink, width=0.9)        # shoe
-        poly([(x0, 9), (x1, 9), (x1, 12.5), (x0, 12.5)], fill=hair)                          # ankle band
+        poly([(x0, 5), (x1, 5), (x1, 36), (x0, 36)], fill=shade if sx < 0 else suit, outline=ink, width=0.8)
+        poly([(x0, 0), (x1, 0), (x1, 5), (x0, 5)], fill=hair, outline=ink, width=0.8)         # shoe
+        poly([(x0, 8), (x1, 8), (x1, 11), (x0, 11)], fill=hair)                               # ankle band
 
-    # --- torso: white jacket, blue shirt V, white tie, belt ---
-    poly([(-15.5, 35), (15.5, 35), (17.5, 65), (-17.5, 65)], fill=suit, outline=ink, width=1.0)
-    poly([(-7.5, 65), (7.5, 65), (0, 45)], fill=shirt)                                       # shirt V
-    poly([(-2.4, 64), (2.4, 64), (1.5, 44), (-1.5, 44)], fill=tie, outline=ink, width=0.7)   # tie
-    for sx in (-1, 1):                                                                        # lapels
-        ax, ay = at(sx * 7.5, 65)
-        bx, by = at(sx * 2.0, 46)
-        canvas.create_line(ax, ay, bx, by, fill=ink, width=0.9 * s)
-    ax, ay = at(-15.8, 38.5)
-    bx, by = at(15.8, 38.5)
-    canvas.create_line(ax, ay, bx, by, fill=ink, width=1.0 * s)                               # belt
+    # --- the free (right) arm, hanging, with its counter-swing ---
+    limb((-13.0, 63.0), (-18.5 + p.swing, 43.0), 5.0, suit)
+    poly(_ellipse_pts(-18.5 + p.swing, 41.0, 2.7, 2.7, 14), fill=skin, outline=ink, width=0.7, smooth=True)
 
-    # --- arms: one hangs, the glove hand rises with the dance ---
-    down, up = (-21.5, 44.0), (-19.0, 77.0)
-    rx = down[0] * -1 + (up[0] * -1 - down[0] * -1) * p.arm
-    ry = down[1] + (up[1] - down[1]) * p.arm
-    limb((-15.0, 63.5), (-21.5, 44.0), 5.4, suit)          # his right arm, hanging
-    limb((15.0, 63.5), (rx, ry), 5.4, suit)                # his left arm, raising
-    poly(_ellipse_pts(-3.0, 1.0, 2.6, 2.6), fill=shirt)    # the blue armband sits on the hanging arm
-    for hx, hy in ((-21.8, 42.0), (rx + 0.3, ry - 2.0)):
-        poly(_ellipse_pts(hx, hy, 3.0, 3.0, 14), fill=skin, outline=ink, width=0.8, smooth=True)
+    # --- torso: white jacket (left side shaded), blue shirt V, white tie, belt ---
+    poly([(-14.0, 36), (14.0, 36), (16.0, 64), (-16.0, 64)], fill=suit, outline=ink, width=0.9)
+    poly([(-16.0, 64), (-14.0, 36), (0, 36), (0, 64)], fill=shade)                            # left-side shadow
+    poly([(-6.8, 64), (6.8, 64), (0, 44)], fill=shirt)                                        # shirt V
+    poly([(-2.1, 63), (2.1, 63), (1.3, 45), (-1.3, 45)], fill=tie, outline=ink, width=0.6)    # tie
+    for sx in (-1, 1):                                                                         # lapel lines
+        a0, a1 = at(sx * 6.8, 64), at(sx * 1.8, 45)
+        canvas.create_line(*a0, *a1, fill=ink, width=0.8 * s)
+    b0, b1 = at(-14.4, 39.5), at(14.4, 39.5)
+    canvas.create_line(*b0, *b1, fill=ink, width=0.9 * s)                                      # belt
 
-    # --- head ---
-    poly([(-4.0, 64), (4.0, 64), (4.0, 68), (-4.0, 68)], fill=skin, outline=ink, width=0.7)  # neck
-    poly(_rrect_pts(-9.5, 67.5, 9.5, 86.0, 3.4), fill=skin, outline=ink, width=0.9, smooth=True)
-    for sx in (-1, 1):                                                                        # eyes
-        poly(_ellipse_pts(sx * 3.7, 78.6, 1.15, 1.35, 12), fill=ink, smooth=True)
-        ex0, ey0 = at(sx * 5.4, 81.6)
-        ex1, ey1 = at(sx * 2.1, 82.3)
-        canvas.create_line(ex0, ey0, ex1, ey1, fill=ink, width=1.1 * s)                       # brow
-    mx0, my0 = at(-2.6, 73.4)
-    mx1, my1 = at(2.6, 73.4)
-    canvas.create_line(mx0, my0, mx1, my1, fill=ink, width=1.0 * s)                           # mouth
+    # --- the glove arm, raising with the dance ---
+    rx = 17.5 + 2.0 * (1 - p.arm)
+    ry = 43.0 + (77.0 - 43.0) * p.arm
+    limb((13.0, 63.0), (rx, ry), 5.0, suit)
+    poly(_ellipse_pts(rx, ry - 1.5, 2.9, 2.9, 14), fill="#ffffff", outline=ink, width=0.7, smooth=True)
 
-    # --- hair: a fringe under the brim and a lock down each side ---
-    poly([(-9.6, 83.0), (9.6, 83.0), (9.6, 86.2), (-9.6, 86.2)], fill=hair)
-    poly([(-9.4, 85.5), (-12.6, 82.0), (-13.2, 74.0), (-10.6, 69.5), (-8.6, 72.0), (-9.4, 78.0)],
-         fill=hair, smooth=True)
-    poly([(9.4, 85.5), (12.6, 82.0), (13.2, 75.0), (11.0, 71.0), (8.8, 73.5), (9.4, 79.0)],
-         fill=hair, smooth=True)
+    # --- head (follows the lean with a slight lag) ---
+    hat_extra = p.hat_lag
+    poly([(-3.4, 63), (3.4, 63), (3.4, 67), (-3.4, 67)], fill=skin, outline=ink, width=0.6, extra=hat_extra)
+    poly(_rrect_pts(-8.6, 66.5, 8.6, 85.0, 3.2), fill=skin, outline=ink, width=0.8, smooth=True, extra=hat_extra)
+    poly(_rrect_pts(-8.6, 66.5, -1.0, 85.0, 3.2), fill="#e3c6a2", smooth=True, extra=hat_extra)  # cheek shade
+    for sx in (-1, 1):                                                                         # eyes + brows
+        poly(_ellipse_pts(sx * 3.3, 77.5, 1.05, 1.3, 12), fill=ink, smooth=True, extra=hat_extra)
+        e0, e1 = at(sx * 5.0, 80.4, hat_extra), at(sx * 1.9, 81.1, hat_extra)
+        canvas.create_line(*e0, *e1, fill=ink, width=1.0 * s)
+    m0, m1 = at(-2.3, 72.6, hat_extra), at(2.3, 72.6, hat_extra)
+    canvas.create_line(*m0, *m1, fill=ink, width=0.9 * s)                                      # mouth
+
+    # --- hair: fringe + a lock down each side ---
+    poly([(-8.7, 82.0), (8.7, 82.0), (8.7, 85.2), (-8.7, 85.2)], fill=hair, extra=hat_extra)
+    poly([(-8.5, 84.5), (-11.4, 81.0), (-12.0, 73.0), (-9.6, 68.5), (-7.8, 71.0), (-8.5, 77.0)],
+         fill=hair, smooth=True, extra=hat_extra)
+    poly([(8.5, 84.5), (11.4, 81.0), (12.0, 74.0), (10.0, 70.0), (8.0, 72.5), (8.5, 78.0)],
+         fill=hair, smooth=True, extra=hat_extra)
 
     # --- fedora: wide brim, black band, pinched crown ---
-    poly(_ellipse_pts(0, 86.4, 23.5, 4.0, 26), fill=suit, outline=ink, width=0.9, smooth=True)
-    poly([(-12.4, 86.6), (12.4, 86.6), (12.4, 90.2), (-12.4, 90.2)], fill=hair)
-    poly([(-12.4, 90.0), (-11.0, 96.4), (-6.2, 98.6), (-2.2, 96.8), (2.2, 98.8), (6.6, 98.6),
-          (11.0, 96.2), (12.4, 90.0)], fill=suit, outline=ink, width=0.9, smooth=True)
+    poly(_ellipse_pts(0, 85.4, 21.0, 3.6, 26), fill=suit, outline=ink, width=0.8, smooth=True, extra=hat_extra)
+    poly(_ellipse_pts(0, 85.6, 21.0, 2.0, 26), fill=shade, smooth=True, extra=hat_extra)       # brim underside
+    poly([(-11.0, 85.6), (11.0, 85.6), (11.0, 89.0), (-11.0, 89.0)], fill=hair, extra=hat_extra)  # band
+    poly([(-11.0, 88.8), (-9.6, 95.2), (-5.4, 97.4), (-1.9, 95.8), (2.0, 97.6), (5.8, 97.4),
+          (9.8, 95.0), (11.0, 88.8)], fill=suit, outline=ink, width=0.8, smooth=True, extra=hat_extra)
+    poly([(-11.0, 88.8), (-9.6, 95.2), (-5.4, 97.4), (-2.0, 96.2), (-2.0, 88.8)],
+         fill=shade, smooth=True, extra=hat_extra)                                             # crown shadow side
 
 
 class _Poller:
@@ -224,6 +245,52 @@ def _testing_now(data: dict[str, object]) -> str:
     return head if len(current) == 1 else f"{head} +{len(current) - 1}"
 
 
+#: A one-character status glyph per outcome, for the always-on bubble. Colour carries the rest.
+_OUTCOME_GLYPH = {"clean": "✓", "problem": "⚠", "undecided": "?", "errored": "×"}
+_OUTCOME_ACCENT = {
+    "clean": "#30d158", "problem": "#ff453a", "undecided": "#ff9f0a", "errored": "#ff453a",
+}
+
+#: The outcome each resting mood stands for, so the bubble names the SAME card the face reflects.
+#: The mascot is the worst outcome of the latest tick, so the bubble must pick the run matching it
+#: (the file that caused the mood), not merely the most recently recorded one — otherwise the pet
+#: looks alarmed while its bubble names a file that was fine.
+_MOOD_OUTCOME = {"happy": "clean", "alarmed": "problem", "unsure": "undecided", "errored": "errored"}
+
+
+def _files_label(trigger: list[str]) -> str:
+    """The lead filename of a trigger, with a ``+n`` when several files changed. '' if none."""
+    if not trigger:
+        return ""
+    head = trigger[0].split("/")[-1].split("\\")[-1]
+    return head if len(trigger) == 1 else f"{head} +{len(trigger) - 1}"
+
+
+def signal_line(data: dict[str, object], state: str) -> tuple[str, str]:
+    """The always-on bubble text + its accent colour: what he is testing *now*, or last tested + result.
+
+    The in-flight target (``current`` + the ``evaluating`` mood) lasts only the few milliseconds a
+    tick runs, so a ~1s poll almost never catches it — which is why the bubble looked dead. This
+    derives a signal that is *always* truthful instead: "testing X" while a run is genuinely in
+    flight, otherwise the last file graded and how it went, and "watching <project>" before the
+    first run. Pure, so it is unit-tested without opening a window.
+    """
+    now = _testing_now(data)
+    if state == "evaluating" and now:
+        return f"testing {now}", _ACCENT["evaluating"]
+    triggered = [r for r in _runs(data) if _str_list(r.get("trigger"))]
+    if triggered:
+        want = _MOOD_OUTCOME.get(state)
+        # the run that caused the current mood (the worst one), else just the most recent file graded
+        latest = next((r for r in triggered if str(r.get("outcome", "")) == want), triggered[0])
+        label = _files_label(_str_list(latest.get("trigger")))
+        outcome = str(latest.get("outcome", ""))
+        glyph = _OUTCOME_GLYPH.get(outcome, "•")
+        return f"{glyph} {label}", _OUTCOME_ACCENT.get(outcome, _ACCENT["idle"])
+    project = str(data.get("root", "")).rstrip("/\\").replace("\\", "/").split("/")[-1]
+    return f"watching {project or 'your repo'}", _ACCENT["idle"]
+
+
 def _round_rect(
     canvas: tk.Canvas, x0: float, y0: float, x1: float, y1: float, r: float, *, fill: str, outline: str = ""
 ) -> None:
@@ -235,40 +302,48 @@ def _round_rect(
     canvas.create_polygon(flat, smooth=True, fill=fill, outline=outline)
 
 
-def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5, scale: float = 0.78) -> None:
-    """Open the frameless figure. Blocks on the Tk main loop until dismissed (Esc).
+def _make_transparent(win: "tk.Tk | tk.Toplevel", canvas: tk.Canvas) -> bool:
+    """Make a window frameless AND actually transparent on macOS. Returns whether it took.
+
+    The reliable path on Aqua is the native *plain* window style (no title bar, no close/min/max
+    buttons, and it composites alpha) rather than ``overrideredirect``, plus ``-transparent`` and a
+    ``systemTransparent`` background on the toplevel *and* the canvas — a canvas with any other
+    background paints an opaque box over the hole.
+    """
+    try:
+        win.tk.call("::tk::unsupported::MacWindowStyle", "style", str(win), "plain", "none")
+        win.wm_attributes("-transparent", True)
+        win["bg"] = "systemTransparent"
+        canvas["bg"] = "systemTransparent"
+        win.update_idletasks()
+        return True
+    except tk.TclError:
+        win["bg"] = "#0e0f13"
+        canvas["bg"] = "#0e0f13"
+        return False
+
+
+def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5, scale: float = 0.62) -> None:
+    """Open the frameless, transparent figure. Blocks on the Tk main loop until dismissed (Esc).
 
     Constructs the window only here, so importing this module (and the geometry tests) stay headless.
     """
     poller = _Poller(f"http://{host}:{port}/status.json", interval=poll)
     poller.start()
 
-    cloud_h = 44
-    w = 150
-    h = int(cloud_h + FIGURE_HEIGHT * scale + 14)
-    ox, oy = w / 2.0, h - 8.0
+    cloud_h = 40
+    w = 132
+    h = int(cloud_h + FIGURE_HEIGHT * scale + 10)
+    ox, oy = w / 2.0, h - 6.0
 
     root = tk.Tk()
-    root.overrideredirect(True)              # NO title bar, NO close/min/max buttons
     root.attributes("-topmost", True)
     sw = root.winfo_screenwidth()
     root.geometry(f"{w}x{h}+{sw - w - 40}+120")
     canvas = tk.Canvas(root, width=w, height=h, highlightthickness=0, bd=0)
     canvas.pack()
-
-    # macOS: the window must be MAPPED before -transparent takes, and every widget stacked over it
-    # (here the canvas) must carry the same systemTransparent background or it paints an opaque box.
     root.update()
-    transparent = True
-    try:
-        root.wm_attributes("-transparent", True)
-        root.configure(bg="systemTransparent")
-        canvas.configure(bg="systemTransparent")
-        root.update_idletasks()
-    except tk.TclError:
-        transparent = False
-        root.configure(bg="#0e0f13")
-        canvas.configure(bg="#0e0f13")
+    transparent = _make_transparent(root, canvas)
 
     panel = _Panel(poller, transparent=transparent)
     drag = {"x": 0, "y": 0, "moved": False}
@@ -299,12 +374,10 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
     frame = {"n": 0}
 
     def draw_cloud(state: str, accent: str) -> None:
-        """A thought cloud above his head naming what he is testing, while he is active."""
-        label = _testing_now(poller.data)
-        if state != "evaluating" or not label:
-            return
-        dots = "." * (1 + frame["n"] // 8 % 3)
-        text = f"testing {label}{dots}"
+        """A thought cloud above his head, always on: what he is testing now, or last tested + result."""
+        text, accent = signal_line(poller.data, state)
+        if state == "evaluating":
+            text += "." * (1 + frame["n"] // 8 % 3)
         width = min(w - 8.0, max(86.0, 6.6 * len(text) + 22))
         x0, x1 = (w - width) / 2, (w + width) / 2
         _round_rect(canvas, x0, 5, x1, 29, 11, fill="#1b1e26", outline=accent)
@@ -383,17 +456,11 @@ class _Panel:
 
     def _open(self, anchor: tk.Misc) -> None:
         win = tk.Toplevel()
-        win.overrideredirect(True)   # the panel has no chrome either
         win.attributes("-topmost", True)
-        bg = "#0e0f13"
-        if self._transparent:
-            try:
-                win.attributes("-transparent", True)
-                bg = "systemTransparent"
-            except tk.TclError:
-                pass
-        canvas = tk.Canvas(win, width=self.W, height=self.H, bg=bg, highlightthickness=0, bd=0)
+        canvas = tk.Canvas(win, width=self.W, height=self.H, highlightthickness=0, bd=0)
         canvas.pack()
+        win.update()
+        _make_transparent(win, canvas)   # native plain style: no chrome, rounded card shows through
         win.bind("<Escape>", lambda _e: self.close())
         self._win, self._canvas = win, canvas
         self._place(anchor)

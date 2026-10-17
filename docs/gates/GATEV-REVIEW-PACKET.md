@@ -326,11 +326,12 @@ The evidence driver calls only built `evalloop` code against `gatev-sample/` and
 stand-ins; it writes nothing into `evalloop/`. From the repo root, with the venv active:
 
 ```
-PYTHONPATH=. python gatev_gate.py
+PYTHONPATH=. python tools/gatev_gate.py
 ```
 
-(The driver sits at the repo root, **not** inside `gatev-sample/`, so it is not part of the fixture
-repo that discovery scans — discovery is pointed at `gatev-sample/` only. Nothing in the sample was
+(The driver lives in `tools/`, and the fixture repo in `examples/gatev-sample/`, so the driver is
+not part of the repo that discovery scans — discovery is pointed at `examples/gatev-sample/` only.
+Nothing in the sample was
 softened to make the gate pass — the production endpoint, the hallucinated column, and the
 false-negative boundary are all there on purpose.)
 

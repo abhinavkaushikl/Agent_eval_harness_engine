@@ -213,9 +213,32 @@ mypy --strict evalloop/     # type check
 EVALLOOP_CORPUS="knowledge rules" pytest   # point at a corpus explicitly (optional)
 ```
 
-## 9. Related docs
-- `ARCHITECTURE.md` — system-level architecture: sensors, intent bus, coding-agent integration, live connectors (post-M0 tracks)
-- `AGENT.md` — how the autonomous backend agent behaves (full pipeline)
-- `USER_EXPERIENCE.md` — what the developer sees and does
-- `PLAN.md` — milestones, gates, critical path
-- `TASKS.md` — small, verifiable tasks in execution order
+## 9. Repository layout
+
+Code and the corpus stay at the root; everything written *about* the project lives under `docs/`.
+
+```
+evalloop/              the package (never moved — imports depend on it)
+tests/                 pytest suite (pyproject testpaths)
+knowledge rules/       the read-only corpus (path-resolved; never move or rename)
+decisions/             EL-NNN decision records
+docs/
+  architecture/        ARCHITECTURE.md, AGENT.md, USER_EXPERIENCE.md
+  planning/            PLAN.md, TASKS.md, DEVELOPMENT_PLAN.md
+  tickets/             E0–E3 tickets-and-prompts
+  reports/             S*-REPORT.md, EL-*-REPORT.md (per-stage/ticket reports)
+  gates/               GATE0/GATE1/GATEV packets + GATE0-RENDERED-PLANS.md
+  misc/                non-project files
+examples/              gatev-sample/, playground/ (bot scratch), testcases-running/
+tools/                 gatev_gate.py (the Gate V evidence driver)
+```
+
+Note: many docstrings cite docs by bare name (`PLAN.md`, `S14-REPORT.md`); those are prose
+references to the files now under `docs/`, not import paths.
+
+## 10. Related docs
+- `docs/architecture/ARCHITECTURE.md` — system-level architecture: sensors, intent bus, coding-agent integration, live connectors (post-M0 tracks)
+- `docs/architecture/AGENT.md` — how the autonomous backend agent behaves (full pipeline)
+- `docs/architecture/USER_EXPERIENCE.md` — what the developer sees and does
+- `docs/planning/PLAN.md` — milestones, gates, critical path
+- `docs/planning/TASKS.md` — small, verifiable tasks in execution order

@@ -7,13 +7,22 @@ layer just dumps :meth:`SessionState.to_json`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from evalloop._compat import StrEnum
 from evalloop.run import RunResult
-from evalloop.memory.case import Verdict
+from evalloop.memory.case import CaseResult, Verdict
+from evalloop.stats.proportions import wilson_interval
 
-__all__ = ["MascotState", "CaseCard", "RunCard", "SessionState"]
+__all__ = [
+    "MascotState",
+    "CaseCard",
+    "RunCard",
+    "SessionState",
+    "worst_outcome",
+    "exit_code_for",
+]
 
 
 class MascotState(StrEnum):
@@ -34,19 +43,67 @@ _OUTCOME_TO_MASCOT = {
     "errored": MascotState.errored,
 }
 
+#: How a tick's cards are ranked to pick its headline. One ``tick`` grades several things (the
+#: Python-function path, any SQL/RAG specs, the auto DB-access check), each its own card. The
+#: card recorded LAST is not the one a developer needs to see first: a real PROBLEM outranks an
+#: errored eval, which outranks UNDECIDED, which outranks CLEAN. "PROBLEM wins the tick" — so the
+#: mascot, the single-line CLI summary, and the exit code all speak for the worst thing found,
+#: never the last thing graded.
+_OUTCOME_SEVERITY = {"clean": 0, "undecided": 1, "errored": 2, "problem": 3}
+
+#: The process exit code each headline outcome maps to, same honesty as ``run.RunOutcome``:
+#: 0 clean, 1 a problem found (or the eval itself errored — both need attention), 2 undecided.
+_OUTCOME_EXIT_CODE = {"clean": 0, "problem": 1, "errored": 1, "undecided": 2}
+
+
+def worst_outcome(outcomes: Iterable[str]) -> str:
+    """The most severe outcome among a tick's cards, or ``"clean"`` when there are none."""
+    return max(outcomes, key=lambda o: _OUTCOME_SEVERITY.get(o, -1), default="clean")
+
+
+def exit_code_for(outcome: str) -> int:
+    """The honest exit code for a headline outcome (unknown outcomes read as undecided)."""
+    return _OUTCOME_EXIT_CODE.get(outcome, 2)
+
+
+def _case_name(case_id: str) -> str:
+    """The specific test out of a case id like ``file.py::test_adds`` or ``…::test_x[param]``."""
+    tail = case_id.split("::")[-1]
+    return tail or case_id
+
+
+def _case_detail(case: CaseResult) -> str:
+    """The honest 'why' for one case: the real failing assertion if there is one, else the reason."""
+    if case.verdict is Verdict.failed:
+        evidence = (str(case.evidence) if case.evidence else "").strip()
+        return evidence or (case.failure_class.value if case.failure_class is not None else "failed")
+    if case.verdict is Verdict.inconclusive:
+        return case.inconclusive_reason or "inconclusive"
+    return "ok"
+
 
 @dataclass(frozen=True, slots=True)
 class CaseCard:
-    """One graded case, flattened for display."""
+    """One graded case, flattened for display: which test, which technique, and why it landed."""
 
-    artifact: str
-    record: str
+    artifact: str        # the file / target under test
+    name: str            # the specific test case (the thing that passed or failed)
+    record: str          # the technique id (e.g. A1_execution_based)
     verdict: str
-    rung: int | None
-    detail: str
+    detail: str          # for a failure: the real evidence (the assertion, expected vs actual)
+    failure_class: str   # "" unless it failed — e.g. wrong_result, unknown_column, syntax_error
+    rung: int | None = None
+    confidence: str = ""  # oracle confidence: high (harvested) / low (model-written) / "" (spec)
+    kind: str = ""        # case kind: generated (LLM-written) / permanent / spec
+    oracle: str = ""      # which oracle judged it (a harvested test file, or "authored:…")
 
     def to_json(self) -> dict[str, object]:
-        return {"artifact": self.artifact, "record": self.record, "verdict": self.verdict, "rung": self.rung, "detail": self.detail}
+        return {
+            "artifact": self.artifact, "name": self.name, "record": self.record,
+            "verdict": self.verdict, "detail": self.detail,
+            "failure_class": self.failure_class, "rung": self.rung,
+            "confidence": self.confidence, "kind": self.kind, "oracle": self.oracle,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,14 +134,33 @@ class RunCard:
         )
 
     @classmethod
+    def from_spec(cls, kind: str, situation: str, outcome: str, cases: tuple[CaseCard, ...], *,
+                  trigger: tuple[str, ...], at: float) -> RunCard:
+        """A card for a SQL / RAG / agent eval spec, which grades outside the Python-function path."""
+        return cls(
+            run_id=f"spec:{kind}",
+            outcome=outcome,
+            trigger=trigger,
+            situations=(f"{situation} (spec)",),
+            cases=cases,
+            permission_requests=(),
+            at=at,
+        )
+
+    @classmethod
     def from_result(cls, result: RunResult, *, trigger: tuple[str, ...], at: float) -> RunCard:
         cases = tuple(
             CaseCard(
                 artifact=c.artifact_id,
+                name=_case_name(c.case_id),
                 record=c.record_id,
                 verdict=c.verdict.value if isinstance(c.verdict, Verdict) else str(c.verdict),
+                detail=_case_detail(c),
+                failure_class=c.failure_class.value if c.failure_class is not None else "",
                 rung=c.ladder_rung,
-                detail=c.inconclusive_reason or (c.failure_class.value if c.failure_class is not None else "ok"),
+                confidence=c.oracle_confidence.value,
+                kind=c.case_kind.value,
+                oracle=c.oracle_id,
             )
             for c in result.cases
         )
@@ -98,6 +174,17 @@ class RunCard:
             at=at,
         )
 
+    def rate(self) -> dict[str, object] | None:
+        """The run's pass rate over DECIDED cases, with its Wilson interval (C1). None if nothing decided."""
+        passed = sum(1 for c in self.cases if c.verdict == "passed")
+        failed = sum(1 for c in self.cases if c.verdict == "failed")
+        n = passed + failed
+        if n == 0:
+            return None
+        iv = wilson_interval(passed, n)
+        return {"passed": passed, "failed": failed, "n": n,
+                "estimate": iv.estimate, "lower": iv.lower, "upper": iv.upper, "confidence": iv.confidence}
+
     def to_json(self) -> dict[str, object]:
         return {
             "run_id": self.run_id,
@@ -105,6 +192,7 @@ class RunCard:
             "trigger": list(self.trigger),
             "situations": list(self.situations),
             "cases": [c.to_json() for c in self.cases],
+            "rate": self.rate(),
             "permission_requests": list(self.permission_requests),
             "at": self.at,
             "error": self.error,

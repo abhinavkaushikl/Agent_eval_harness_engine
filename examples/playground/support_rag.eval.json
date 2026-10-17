@@ -1,0 +1,41 @@
+{
+  "kind": "rag",
+  "k": 3,
+  "embedding_model": "bge-small-en",
+  "min_recall": 0.8,
+  "queries": [
+    {
+      "query_id": "refunds",
+      "gold_ids": [
+        "p1"
+      ],
+      "retrieved": [
+        "p1",
+        "p3",
+        "p9"
+      ]
+    },
+    {
+      "query_id": "shipping",
+      "gold_ids": [
+        "p2"
+      ],
+      "retrieved": [
+        "p5",
+        "p2",
+        "p8"
+      ]
+    },
+    {
+      "query_id": "returns",
+      "gold_ids": [
+        "p4"
+      ],
+      "retrieved": [
+        "p7",
+        "p9",
+        "p6"
+      ]
+    }
+  ]
+}

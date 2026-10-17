@@ -1,0 +1,17 @@
+{
+  "kind": "sql",
+  "sqlite_setup": "CREATE TABLE orders(id INT, customer TEXT, total INT, status TEXT); INSERT INTO orders VALUES (1,'ada',120,'shipped'),(2,'bob',100,'open'),(3,'ada',300,'shipped'),(4,'cara',100,'cancelled');",
+  "queries": [
+    {
+      "name": "shipped orders (correct)",
+      "reference": "SELECT id FROM orders WHERE status='shipped'",
+      "generated": "SELECT id FROM orders WHERE status = 'shipped'"
+    },
+    {
+      "name": "orders over 100 (wrong boundary)",
+      "reference": "SELECT id FROM orders WHERE total > 100",
+      "generated": "SELECT id FROM orders WHERE total >= 100"
+    }
+  ],
+  "_note": "To test your LIVE database, replace sqlite_setup with \"sqlite\": \"/path/to/your.db\" and put your real queries here."
+}

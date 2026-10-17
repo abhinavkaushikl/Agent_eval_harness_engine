@@ -39,7 +39,8 @@ def snapshot(root: str | os.PathLike[str]) -> Snapshot:
             continue
         dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS)
         for name in sorted(filenames):
-            if not name.endswith(".py"):
+            # Python source to grade as functions, plus eval-spec files for SQL / RAG / agents.
+            if not (name.endswith(".py") or name.endswith(".eval.json")):
                 continue
             path = Path(directory) / name
             digest = _hash(path)

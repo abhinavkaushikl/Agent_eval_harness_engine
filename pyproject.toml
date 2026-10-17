@@ -11,6 +11,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest", "mypy"]
+# The optional on-screen pet. The eval engine stays pure stdlib; only this UI needs Qt, because
+# macOS Tkinter cannot composite a transparent, frameless desktop window and Qt can.
+pet = ["PySide6"]
 
 [tool.setuptools.packages.find]
 include = ["evalloop*"]
@@ -21,3 +24,13 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
+
+# The Qt pet is UI glue over a third-party, C++-backed framework; strict typing of its stubs is not
+# the point and would gate the whole package on them. The engine it talks to is still strict.
+[[tool.mypy.overrides]]
+module = "evalloop.session.overlay_qt"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "PySide6.*"
+ignore_missing_imports = true

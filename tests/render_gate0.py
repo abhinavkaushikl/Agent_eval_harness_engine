@@ -25,7 +25,7 @@ from evalloop.vocab import parse_situation, parse_tool
 from tests.planner_fixture import load_fixture
 from tests.test_planner_fixtures import BLOCKED_PATHS, LIVE_PATHS
 
-ARTIFACT = Path(__file__).resolve().parent.parent / "GATE0-RENDERED-PLANS.md"
+ARTIFACT = Path(__file__).resolve().parent.parent / "docs" / "gates" / "GATE0-RENDERED-PLANS.md"
 
 _FIXTURE_NUMBER = re.compile(r"^(\d\d)_")
 _HEADER = """# Gate 0 — the 20 rendered plans

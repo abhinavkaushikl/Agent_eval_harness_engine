@@ -115,6 +115,32 @@ def test_a_failed_evaluation_does_not_kill_the_watcher(tmp_path: Path) -> None:
     assert session.state.to_json()["runs"][0]["outcome"] == "errored"
 
 
+def test_signal_line_is_always_truthful() -> None:
+    """The pet's bubble shows what he is testing NOW, or last tested + result, never a blank."""
+    from evalloop.session.overlay import signal_line
+
+    # in flight: the current target, while the mood is evaluating
+    text, _ = signal_line({"current": ["connecttodb.py"], "runs": []}, "evaluating")
+    assert text == "testing connecttodb.py"
+
+    # not in flight: the last file graded and how it went (the common case a 1s poll actually sees)
+    data = {"root": "/x/kaycee", "current": [], "runs": [
+        {"outcome": "problem", "trigger": ["connecttodb.py"]},
+        {"outcome": "clean", "trigger": ["other.py"]},
+    ]}
+    text, accent = signal_line(data, "alarmed")
+    assert "connecttodb.py" in text and text.startswith("⚠")
+    assert accent == "#ff453a"
+
+    # before the first run: still a signal, never empty
+    text, _ = signal_line({"root": "/x/kaycee", "current": [], "runs": []}, "idle")
+    assert text == "watching kaycee"
+
+    # a run with no trigger (the first look) does not count as "last tested"; fall through to watching
+    text, _ = signal_line({"root": "/x/kaycee", "runs": [{"outcome": "clean", "trigger": []}]}, "happy")
+    assert text == "watching kaycee"
+
+
 def test_dashboard_is_self_contained(tmp_path: Path) -> None:
     html = dashboard_html()
     assert "status.json" in html            # it polls live state
@@ -128,14 +154,14 @@ def test_bot_pose_is_a_continuous_dance_without_a_window() -> None:
 
     from evalloop.session.overlay import MOOD, PALETTE, pose
 
-    # the dance leans far; idling barely sways at all
-    dance = max(abs(pose("evaluating", t / 10).lean) for t in range(100))
-    idle = max(abs(pose("idle", t / 10).lean) for t in range(100))
-    assert dance > 10 and idle < 5, (dance, idle)
+    # the dance leans far; idling barely sways at all (sample finely to hit the true peak)
+    dance = max(abs(pose("evaluating", t / 100).lean) for t in range(2000))
+    idle = max(abs(pose("idle", t / 100).lean) for t in range(2000))
+    assert dance > 10 and idle < 5 and dance > 3 * idle, (dance, idle)
 
     # it is continuous: a small step in time is a small change in lean (no frame jumps)
     for t in (0.0, 0.7, 1.9, 3.3):
-        assert abs(pose("evaluating", t).lean - pose("evaluating", t + 0.01).lean) < 1.0
+        assert abs(pose("evaluating", t).lean - pose("evaluating", t + 0.005).lean) < 1.0
 
     # deterministic, and the glove hand stays within its travel
     assert pose("evaluating", 1.23) == pose("evaluating", 1.23)

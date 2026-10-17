@@ -128,19 +128,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         if server is not None:
             sys.stdout.write(f"EvalLoop watching {args.path}\n  dashboard: http://127.0.0.1:{args.port}/  (Ctrl-C to stop)\n")
         if args.once:
-            card = session.tick()
-            sys.stdout.write(f"  tick: {'no change' if card is None else card.outcome.upper()}\n")
-            return 0
-        if args.bot:
-            # Tk owns the main thread; the watcher loop runs beside it and stops when the bot closes.
-            import threading as _threading
+            from evalloop.session.state import exit_code_for
 
-            from evalloop.session.overlay import run_overlay
+            card = session.tick()
+            if card is None:
+                sys.stdout.write("  tick: no change\n")
+                return 0
+            sys.stdout.write(f"  tick: {card.outcome.upper()} ({', '.join(card.trigger) or 'the repository'})\n")
+            return exit_code_for(card.outcome)
+        if args.bot:
+            # The GUI owns the main thread; the watcher loop runs beside it and stops when the pet
+            # closes. Prefer the Qt pet (true transparency); fall back to the stdlib Tk one only if
+            # PySide6 is not installed.
+            import threading as _threading
 
             watcher = _threading.Thread(target=session.run_forever, kwargs={"interval": args.interval}, daemon=True)
             watcher.start()
-            sys.stdout.write("  bot: floating on-screen companion opened (right-click or Esc to close)\n")
-            run_overlay(port=args.port, poll=max(1.0, args.interval))
+            try:
+                from evalloop.session.overlay_qt import run_overlay_qt
+
+                sys.stdout.write("  bot: transparent desktop pet opened — click him, drag to move, Esc to close\n")
+                run_overlay_qt(port=args.port, poll=max(1.0, args.interval))
+            except ImportError:
+                from evalloop.session.overlay import run_overlay
+
+                sys.stdout.write("  bot: PySide6 not installed — using the basic Tk pet (pip install PySide6 for the real one)\n")
+                run_overlay(port=args.port, poll=max(1.0, args.interval))
             session.stop()
             return 0
         try:

@@ -1,0 +1,25 @@
+{
+  "kind": "agent",
+  "sqlite_setup": "CREATE TABLE tickets(id INT, state TEXT);INSERT INTO tickets VALUES (1,'closed'),(2,'closed'),(3,'open');",
+  "claim": {
+    "done": true,
+    "message": "closed all tickets"
+  },
+  "checks": [
+    {
+      "type": "no_rows",
+      "name": "no open tickets",
+      "sql": "SELECT id FROM tickets WHERE state='open'"
+    },
+    {
+      "type": "rows_equal",
+      "name": "three tickets total",
+      "sql": "SELECT count(*) FROM tickets",
+      "expected": [
+        [
+          3
+        ]
+      ]
+    }
+  ]
+}

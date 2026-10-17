@@ -92,7 +92,9 @@ class VerificationContext:
 class StateCheck(Protocol):
     """A single assertion about the real resulting state."""
 
-    name: str
+    @property
+    def name(self) -> str:  # a read-only property, so the frozen check dataclasses satisfy it
+        ...
 
     def verify(self, ctx: VerificationContext) -> CheckResult: ...
 

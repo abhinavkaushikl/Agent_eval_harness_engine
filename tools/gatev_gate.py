@@ -38,7 +38,7 @@ from evalloop.grade.sql_execution import Snapshot, grade_sql, summarize
 from evalloop.memory.case import Verdict
 from evalloop.vocab import Tool
 
-SAMPLE = Path("gatev-sample")
+SAMPLE = Path(__file__).resolve().parent.parent / "examples" / "gatev-sample"
 KAPPA_GATE = 0.60  # caller-supplied (M4's calibration policy); never defaulted inside a grader
 
 

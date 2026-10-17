@@ -1,0 +1,16 @@
+{
+  "kind": "sql",
+  "sqlite_setup": "CREATE TABLE orders(id INT, customer TEXT, total INT, status TEXT);INSERT INTO orders VALUES (1,'ada',120,'shipped'),(2,'bob',90,'open'),(3,'ada',300,'shipped');",
+  "queries": [
+    {
+      "name": "ada's shipped orders",
+      "reference": "SELECT id FROM orders WHERE customer='ada' AND status='shipped'",
+      "generated": "SELECT id FROM orders WHERE status='shipped' AND customer='ada'"
+    },
+    {
+      "name": "big orders (wrong boundary)",
+      "reference": "SELECT id FROM orders WHERE total>100",
+      "generated": "SELECT id FROM orders WHERE total>=100"
+    }
+  ]
+}
