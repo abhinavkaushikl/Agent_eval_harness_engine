@@ -8,7 +8,10 @@ folder — ``*.eval.json`` with a ``kind``:
               and compare result sets to a reference query (EL-311's execution-match grader);
 * ``rag``   — recall@k over the passages each query actually retrieved, with a Wilson CI (EL-312);
 * ``agent`` — verify the real end state of a scratch database against checks, ignoring the agent's
-              own claim (EL-314).
+              own claim (EL-314);
+* ``agent_behavior`` — for an agent with no external end state (a chat/tool agent), run its loop
+              against a scripted stand-in LLM and grade its *behaviour* — reached an answer, called a
+              tool, stayed within a step budget (trajectory; no API key needed).
 
 Each kind calls the already-built grader; this module only parses the spec and shapes the result.
 It writes nothing to the metric store — the session renders the cases straight onto the bot. A live
@@ -38,6 +41,16 @@ from evalloop.grade.end_state import (
 )
 from evalloop.grade.rag_recall import RecallQuery, measure_recall_at_k
 from evalloop.grade.sql_execution import Snapshot, build_snapshot, grade_sql
+from evalloop.grade.trajectory import (
+    BehaviourCheck,
+    MaxSteps,
+    OnlyKnownTools,
+    ReachedAnswer,
+    ReplyContains,
+    ToolCalled,
+    grade_behaviour,
+    run_agent_chat,
+)
 
 __all__ = ["SpecCase", "SpecResult", "SpecError", "SPEC_SUFFIX", "grade_spec_file"]
 
@@ -96,7 +109,9 @@ def grade_spec_file(path: str | Path) -> SpecResult:
         return _grade_rag_spec(raw)
     if kind == "agent":
         return _grade_agent_spec(raw)
-    raise SpecError(f"{p.name}: unknown kind {kind!r}; expected 'sql', 'rag' or 'agent'")
+    if kind == "agent_behavior":
+        return _grade_agent_behaviour_spec(raw, base=p.parent)
+    raise SpecError(f"{p.name}: unknown kind {kind!r}; expected 'sql', 'rag', 'agent' or 'agent_behavior'")
 
 
 # -- SQL -------------------------------------------------------------------------------
@@ -230,3 +245,52 @@ def _grade_agent_spec(data: dict[str, object]) -> SpecResult:
     if not cases:
         cases = (SpecCase("end_state", grade.verdict.value, grade.detail),)
     return SpecResult("agent", "agent_action", cases)
+
+
+# -- agent behaviour (trajectory, no end state) ----------------------------------------
+
+def _build_behaviour_check(i: int, ch: object) -> BehaviourCheck:
+    if not isinstance(ch, dict) or "type" not in ch:
+        raise SpecError(f"behaviour check {i} needs a 'type'")
+    kind = str(ch["type"])
+    if kind == "reached_answer":
+        return ReachedAnswer()
+    if kind == "reply_contains":
+        return ReplyContains(str(_require(ch, "text", "reply_contains check")))
+    if kind == "tool_called":
+        return ToolCalled(str(_require(ch, "name", "tool_called check")))
+    if kind == "max_steps":
+        return MaxSteps(int(str(_require(ch, "limit", "max_steps check"))))
+    if kind == "only_known_tools":
+        known = _require(ch, "known", "only_known_tools check")
+        if not isinstance(known, list):
+            raise SpecError("only_known_tools 'known' must be a list of tool names")
+        return OnlyKnownTools(tuple(str(t) for t in known))
+    raise SpecError(f"behaviour check {i}: unknown type {kind!r}")
+
+
+def _grade_agent_behaviour_spec(data: dict[str, object], *, base: Path) -> SpecResult:
+    module = base / str(_require(data, "module", "agent_behavior"))
+    if not module.exists():
+        raise SpecError(f"agent module {module} does not exist")
+    entry = str(data.get("entry", "chat"))
+    user = str(_require(data, "user", "agent_behavior"))
+    system = str(data["system"]) if data.get("system") else None
+    raw_script = data.get("script")
+    if raw_script is not None and not isinstance(raw_script, list):
+        raise SpecError("agent_behavior 'script' must be a list of turns")
+    script = [t for t in (raw_script or []) if isinstance(t, dict)]
+    raw_checks = _require(data, "checks", "agent_behavior")
+    if not isinstance(raw_checks, list) or not raw_checks:
+        raise SpecError("agent_behavior spec 'checks' must be a non-empty list")
+    checks = [_build_behaviour_check(i, ch) for i, ch in enumerate(raw_checks)]
+    try:
+        trajectory = run_agent_chat(module, entry, user=user, script=script, system=system)
+    except (ImportError, AttributeError) as exc:  # a spec that names the wrong module/entry: config error
+        raise SpecError(f"cannot run agent {module.name}::{entry} — {type(exc).__name__}: {exc}") from exc
+    except Exception as exc:  # the AGENT's own code raised — that is the agent failing, not EvalLoop
+        detail = f"the agent raised {type(exc).__name__}: {exc}"
+        return SpecResult("agent_behavior", "agent_action", (SpecCase("the agent ran without crashing", "failed", detail),))
+    grade = grade_behaviour(trajectory, checks)
+    cases = tuple(SpecCase(r.name, "passed" if r.ok else "failed", r.detail) for r in grade.checks)
+    return SpecResult("agent_behavior", "agent_action", cases)

@@ -71,33 +71,51 @@ class Pose:
     hat_lag: float = 0.0  # extra lean on the hat+head only — follow-through, it trails the body
     swing: float = 0.0    # the free (hanging) arm's counter-swing
     squash: float = 0.0   # 0..1 vertical squash-and-stretch on the landing beat
+    glide: float = 0.0    # horizontal moonwalk slide, in figure units; the whole figure (feet too) slides
+    step: float = 0.0     # -1..1 leg beat: >0 lifts the left knee, <0 the right — the alternating step
 
 
 def pose(state: str, t: float) -> Pose:
-    """The pose for ``state`` at time ``t`` seconds. He DANCES only while evaluating; otherwise he
-    stands, with a small idle animation — the desktop-pet model. Continuous and eased. Pure."""
+    """The pose for ``state`` at time ``t`` seconds. He MOONWALKS — a fast sideways glide with the
+    signature forward lean — in every mood, hardest while evaluating and gentlest while idle, so he
+    is always dancing. Continuous and eased. Pure."""
+    # The moonwalk glide: a fast, smooth sideways slide the whole figure rides, phase-shifted a hair
+    # behind the lean so the body tips the way it came from — the backslide illusion.
+    def glide(amp: float, speed: float) -> float:
+        return amp * math.sin(speed * t - 0.5)
+
     if state == "evaluating":
-        w = 5.4  # the dance — fast, deep lean with follow-through
-        lean = 13.0 * math.sin(w * t)
+        w = 8.4  # the dance — fast, deep lean with follow-through, big backslide, pumping legs
+        lean = 12.0 * math.sin(w * t)
         return Pose(
             lean=lean,
-            bob=2.4 * abs(math.sin(w * t)),
+            bob=2.2 * abs(math.sin(w * t)),
             arm=0.55 + 0.45 * math.sin(2 * w * t),            # the glove pumps twice per lean
-            hat_lag=4.4 * math.sin(w * (t - 0.09)) - lean * 0.35,  # trails the body
+            hat_lag=4.2 * math.sin(w * (t - 0.09)) - lean * 0.35,  # trails the body
             swing=-0.6 * lean,                                 # free arm counter-swings
-            squash=0.09 * abs(math.sin(2 * w * t)),
+            squash=0.08 * abs(math.sin(2 * w * t)),
+            glide=15.0 * math.sin(0.5 * w * t - 0.5),          # slides right across as he dances
+            step=math.sin(w * t),                              # legs pump in time with the lean
         )
     if state == "happy":
-        hop = max(0.0, math.sin(2.4 * t))                      # a couple of little hops, then stands
-        return Pose(lean=1.2 * math.sin(2.4 * t), bob=4.5 * hop, arm=0.65, squash=0.12 * hop)
-    if state in ("alarmed", "errored"):                        # stands, leans back, a worried shiver
-        return Pose(lean=-1.8 + 0.8 * math.sin(10.0 * t), bob=0.0, arm=0.18,
-                    hat_lag=0.7 * math.sin(10.0 * t))
-    if state == "unsure":                                      # stands, head tilts, thinking
-        return Pose(lean=0.0, bob=0.0, arm=0.1, hat_lag=2.6 * math.sin(1.1 * t))
-    # idle: standing straight, just breathing with the faintest weight shift
-    return Pose(lean=0.8 * math.sin(0.5 * t), bob=0.0, arm=0.06,
-                hat_lag=0.35 * math.sin(0.5 * t - 0.3), squash=0.035 + 0.025 * math.sin(1.3 * t))
+        hop = max(0.0, math.sin(4.0 * t))                      # little hops while sliding
+        return Pose(lean=1.6 * math.sin(4.0 * t), bob=4.5 * hop,
+                    arm=0.5 + 0.5 * math.sin(8.0 * t),         # both hands pump
+                    swing=3.0 * math.sin(4.0 * t), squash=0.12 * hop,
+                    glide=glide(12.0, 4.0), step=math.sin(4.0 * t))
+    if state in ("alarmed", "errored"):                        # an agitated, fast shuffle with quick feet
+        return Pose(lean=-1.8 + 1.2 * math.sin(6.0 * t), bob=0.6 * abs(math.sin(6.0 * t)),
+                    arm=0.3 + 0.3 * math.sin(12.0 * t), swing=2.0 * math.sin(6.0 * t),
+                    hat_lag=0.7 * math.sin(6.0 * t), glide=glide(11.0, 6.0), step=math.sin(6.0 * t))
+    if state == "unsure":                                      # a slower, questioning slide with a sway
+        return Pose(lean=1.0 * math.sin(3.0 * t), bob=0.0,
+                    arm=0.25 + 0.2 * math.sin(3.0 * t), swing=2.2 * math.sin(3.0 * t),
+                    hat_lag=2.6 * math.sin(1.1 * t), glide=glide(10.0, 3.0), step=0.7 * math.sin(3.0 * t))
+    # idle: a steady, gentle moonwalk — small lean (he never looks still), sliding feet, swinging arms
+    return Pose(lean=2.4 * math.sin(3.2 * t), bob=0.4 * abs(math.sin(3.2 * t)),
+                arm=0.2 + 0.2 * math.sin(3.2 * t), swing=2.0 * math.sin(3.2 * t),
+                hat_lag=0.6 * math.sin(3.2 * t - 0.3), squash=0.03 + 0.02 * math.sin(1.3 * t),
+                glide=glide(9.0, 3.2), step=0.8 * math.sin(3.2 * t))
 
 
 def _ellipse_pts(cx: float, cy: float, rx: float, ry: float, n: int = 22) -> list[Point]:
@@ -121,11 +139,11 @@ def draw_figure(canvas: tk.Canvas, ox: float, oy: float, s: float, p: Pose, acce
     shade = "#dedede"   # a soft shadow tone for his left side — subtle dimension, not a hard line
 
     def at(x: float, y: float, extra: float = 0.0) -> Point:
-        """Figure space -> canvas: squash the height, shear the lean (+``extra`` for follow-through)."""
+        """Figure space -> canvas: squash the height, shear the lean (+``extra``), slide the glide."""
         ys = y * (1.0 - p.squash)
         xs = x * (1.0 + 0.4 * p.squash)
         dx = (p.lean + extra) * (ys / FIGURE_HEIGHT)
-        return (ox + (xs + dx) * s, oy - (ys + p.bob) * s)
+        return (ox + (xs + dx + p.glide) * s, oy - (ys + p.bob) * s)
 
     def poly(pts: Sequence[Point], fill: str, outline: str = "", width: float = 1.0,
              smooth: bool = False, extra: float = 0.0) -> None:
@@ -142,12 +160,18 @@ def draw_figure(canvas: tk.Canvas, ox: float, oy: float, s: float, p: Pose, acce
         canvas.create_line(ax, ay, bx, by, fill=fill, width=w * s, capstyle="round")
 
     # --- legs: white trousers (left leg shaded), black shoes + ankle band ---
+    # Each leg lifts (knee bends, foot rises) on its beat, with a small sideways kick — the dance step.
+    _LIFT = 7.0
     for sx in (-1, 1):
         inner, outer = sx * 1.4, sx * 12.8
         x0, x1 = min(inner, outer), max(inner, outer)
-        poly([(x0, 5), (x1, 5), (x1, 36), (x0, 36)], fill=shade if sx < 0 else suit, outline=ink, width=0.8)
-        poly([(x0, 0), (x1, 0), (x1, 5), (x0, 5)], fill=hair, outline=ink, width=0.8)         # shoe
-        poly([(x0, 8), (x1, 8), (x1, 11), (x0, 11)], fill=hair)                               # ankle band
+        lift = max(0.0, (p.step if sx < 0 else -p.step)) * _LIFT
+        kick = lift * 0.35 * sx
+        x0 += kick
+        x1 += kick
+        poly([(x0, 5 + lift), (x1, 5 + lift), (x1, 36), (x0, 36)], fill=shade if sx < 0 else suit, outline=ink, width=0.8)
+        poly([(x0, 0 + lift), (x1, 0 + lift), (x1, 5 + lift), (x0, 5 + lift)], fill=hair, outline=ink, width=0.8)  # shoe
+        poly([(x0, 8 + lift), (x1, 8 + lift), (x1, 11 + lift), (x0, 11 + lift)], fill=hair)                        # ankle band
 
     # --- the free (right) arm, hanging, with its counter-swing ---
     limb((-13.0, 63.0), (-18.5 + p.swing, 43.0), 5.0, suit)

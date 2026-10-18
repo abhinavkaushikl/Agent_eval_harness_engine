@@ -49,10 +49,22 @@ Each unit is checked for three signals, the ones the EL-204 ticket lists:
   ``X | None`` and string annotations count. A **route's** return annotation is
   its response schema, not an extraction, so a route never carries this signal.
   A schema class imported from another module is invisible.
+* **agent loop** -> ``agent_action``: a loop (``for`` / ``while``) that contains
+  **both** an LLM call and a tool dispatch -- the observe→act loop. An LLM call
+  is a call whose dotted callee ends in a known completion endpoint
+  (``messages.create``, ``chat.completions.create``, ``responses.create``, …) or
+  any call that passes a ``tools=`` / ``tool_choice=`` keyword. A tool dispatch
+  is evidence the loop routes to a tool: a ``tools=`` keyword, a call through a
+  subscript (``tools[name](...)``), a ``getattr`` call, or reading
+  ``.tool_calls`` / ``.tool_use`` / ``.function_call`` off a response. The loop
+  is the discriminator: a one-shot ``create(tools=…)`` is structured tool use,
+  not an agent, and a chat loop with **no** tool dispatch stays
+  ``code_generation``. Agents cannot be auto-graded here (no resettable
+  environment or trajectory capture), so flagging one is honest, not a grade.
 
-A unit with none of the three is a plain function -> ``code_generation``. A
-unit may carry route and SQL together, which is how a file earns both
-``api_endpoint`` and ``sql_generation`` (planner fixture 18's pair).
+A unit with none of these is a plain function -> ``code_generation``. A unit may
+carry route and SQL together, which is how a file earns both ``api_endpoint`` and
+``sql_generation`` (planner fixture 18's pair).
 
 Confidence
 ----------
@@ -115,6 +127,7 @@ __all__ = [
 
 #: Every situation this classifier can emit. Each reaches at least one record.
 EMITTABLE: tuple[Situation, ...] = (
+    Situation.agent_action,
     Situation.api_endpoint,
     Situation.code_generation,
     Situation.sql_generation,
@@ -143,6 +156,15 @@ _ROUTE_METHODS = frozenset(
     {"get", "post", "put", "patch", "delete", "head", "options", "route", "api_route", "websocket"}
 )
 _SQL_EXECUTORS = frozenset({"execute", "executemany", "executescript", "read_sql", "read_sql_query", "text"})
+#: Dotted callee suffixes that name an LLM completion endpoint (vendor-agnostic set from the SDKs).
+_LLM_CALL_DOTTED = (
+    "messages.create", "messages.stream",
+    "chat.completions.create", "completions.create", "responses.create", "chat.create",
+)
+#: Keywords that mark a call as tool-using (the agent signature), whatever the provider.
+_LLM_TOOL_KW = frozenset({"tools", "tool_choice"})
+#: Response attributes an agent reads to find the tool calls it must dispatch.
+_TOOL_DISPATCH_ATTRS = frozenset({"tool_calls", "tool_use", "function_call"})
 _SCHEMA_BASES = frozenset({"BaseModel", "TypedDict"})
 _TRAINING_PACKAGES = frozenset(
     {"catboost", "flax", "jax", "keras", "lightgbm", "sklearn", "tensorflow", "torch", "xgboost"}
@@ -358,6 +380,55 @@ def _schema_return(node: _Function, schemas: frozenset[str]) -> str | None:
     return None
 
 
+def _dotted(expr: ast.expr) -> str:
+    """The dotted name of a call target, e.g. ``client.messages.create``; '' if not a plain path."""
+    parts: list[str] = []
+    node: ast.expr = expr
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    parts.reverse()
+    return ".".join(parts)
+
+
+def _is_llm_call(call: ast.Call) -> bool:
+    """A call to an LLM completion endpoint, or any call carrying a tool-use keyword."""
+    dotted = _dotted(call.func)
+    if any(dotted.endswith(suffix) for suffix in _LLM_CALL_DOTTED):
+        return True
+    return any(kw.arg in _LLM_TOOL_KW for kw in call.keywords if kw.arg is not None)
+
+
+def _has_tool_dispatch(loop: ast.stmt) -> bool:
+    """Evidence inside ``loop`` that it routes to a tool: a tools kwarg, dynamic dispatch, or reading
+    a response's tool calls."""
+    for node in ast.walk(loop):
+        if isinstance(node, ast.Call):
+            if any(kw.arg in _LLM_TOOL_KW for kw in node.keywords if kw.arg is not None):
+                return True
+            if isinstance(node.func, ast.Subscript):  # tools[name](...) / registry[call.name](...)
+                return True
+            if isinstance(node.func, ast.Name) and node.func.id == "getattr":  # getattr(mod, name)(...)
+                return True
+        if isinstance(node, ast.Attribute) and node.attr in _TOOL_DISPATCH_ATTRS:
+            return True
+    return False
+
+
+def _agent(node: _Function) -> str | None:
+    """An LLM call inside a tool-dispatch loop — the observe→act agent loop. None otherwise."""
+    for loop in ast.walk(node):
+        if not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)):
+            continue
+        llm = next((c for c in ast.walk(loop) if isinstance(c, ast.Call) and _is_llm_call(c)), None)
+        if llm is not None and _has_tool_dispatch(loop):
+            how = _dotted(llm.func) or "an LLM call"
+            return f"LLM call {how}(...) inside a tool-dispatch loop"
+    return None
+
+
 def _dead_ends(tree: ast.Module) -> list[tuple[Situation, str]]:
     packages: set[str] = set()
     calls: set[str] = set()
@@ -441,14 +512,17 @@ def classify_source(source: str | bytes, *, name: str) -> ClassifierResult:
         route = _route(unit.node)
         sql = _sql(unit.node)
         schema = None if route else _schema_return(unit.node, schemas)
+        agent = _agent(unit.node)
         if route:
             earned[Situation.api_endpoint].append((unit.name, f"route {route}"))
         if sql:
             earned[Situation.sql_generation].append((unit.name, sql))
         if schema:
             earned[Situation.structured_extraction].append((unit.name, schema))
-        if not (route or sql or schema):
-            earned[Situation.code_generation].append((unit.name, "no route, SQL or schema return"))
+        if agent:
+            earned[Situation.agent_action].append((unit.name, agent))
+        if not (route or sql or schema or agent):
+            earned[Situation.code_generation].append((unit.name, "no route, SQL, schema return or agent loop"))
 
     findings = sorted(
         (_label(situation, hits, len(units)) for situation, hits in earned.items() if hits),

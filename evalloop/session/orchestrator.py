@@ -17,6 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
+from evalloop.classify.heuristics import classify_source
+from evalloop.grade.agent_scaffold import SCAFFOLD_SUFFIX, scaffold_agent_eval
 from evalloop.grade.dbcheck import check_file, find_sqlite
 from evalloop.grade.specs import SPEC_SUFFIX, grade_spec_file
 from evalloop.run import Author, RunResult, check
@@ -24,6 +26,7 @@ from evalloop.session.dashboard import dashboard_html
 from evalloop.session.poller import Snapshot, changed_files, snapshot
 from evalloop.session.state import CaseCard, MascotState, RunCard, SessionState, worst_outcome
 from evalloop.session.state import _OUTCOME_TO_MASCOT
+from evalloop.vocab import Situation
 
 __all__ = ["Session"]
 
@@ -80,13 +83,16 @@ class Session:
             self._record(card)
             produced.append(card)
 
-        # SQL / RAG / agent specs grade outside the Python-function path; grade the changed ones
-        # (or, on the first look, every spec under the tree) each as its own card.
-        spec_rels = [f for f in (trigger or tuple(current)) if f.endswith(SPEC_SUFFIX)]
-        for rel in sorted(set(spec_rels)):
-            emit(self._grade_spec(rel))
-
         py_trigger = tuple(f for f in trigger if f.endswith(".py"))
+
+        # SQL / RAG / agent specs grade outside the Python-function path. Grade the ones whose own file
+        # changed (or, on the first look, every spec under the tree) AND the ones whose referenced agent
+        # module changed -- a behaviour/end-state spec depends on the code it runs, so editing that code
+        # must re-grade the spec, not just the plain (undecidable) py-path.
+        spec_rels = {f for f in (trigger or tuple(current)) if f.endswith(SPEC_SUFFIX)}
+        spec_rels |= self._specs_for_changed_modules(py_trigger, current)
+        for rel in sorted(spec_rels):
+            emit(self._grade_spec(rel))
 
         # Auto DB-access validation: a changed .py that issues SQL, and a SQLite db in the tree -> run
         # the no-oracle layers (read-only / schema / executes / shape) against a read-only snapshot.
@@ -97,6 +103,14 @@ class Session:
                 if card is not None:
                     emit(card)
 
+        # Agent files cannot be auto-graded yet (no resettable env / trajectory capture), and the
+        # classifier can only flag them. So instead of silently ignoring one, drop a starter eval
+        # scaffold beside it and surface it, rather than letting it fall through as "nothing to do".
+        for rel in sorted(f for f in (py_trigger or tuple(current)) if f.endswith(".py")):
+            card = self._agent_scaffold(rel)
+            if card is not None:
+                emit(card)
+
         # the Python-function path still grades the whole repo as before
         if py_trigger or first_run:
             try:
@@ -104,7 +118,12 @@ class Session:
                 card = RunCard.from_result(result, trigger=py_trigger, at=self._clock())
             except Exception as exc:  # a bad run must never kill the watcher — record it and keep going
                 card = RunCard.errored(exc, trigger=py_trigger, at=self._clock())
-            emit(card)
+            # Don't let an empty "nothing in the function path" card (the usual result for an agent file,
+            # which has no execution grader) sit ABOVE a real verdict from a spec/DB check in the same
+            # tick — it reads as UNDECIDED on top and hides the actual PASS/FAIL. Keep it only when it
+            # graded something, failed/errored, or is the only thing this tick produced.
+            if card.cases or card.outcome in ("problem", "errored") or not produced:
+                emit(card)
         return self._conclude(produced)
 
     def _conclude(self, produced: list[RunCard]) -> RunCard | None:
@@ -141,6 +160,84 @@ class Session:
             return RunCard.from_spec("db", "db_access", outcome, cards, trigger=(rel,), at=self._clock())
         except Exception as exc:
             return RunCard.errored(exc, trigger=(rel,), at=self._clock())
+
+    def _specs_for_changed_modules(self, py_trigger: tuple[str, ...], current: Snapshot) -> set[str]:
+        """Specs whose referenced ``module`` is among the changed ``.py`` files — so editing an agent's
+        code re-grades its spec. Empty when no ``.py`` changed."""
+        if not py_trigger:
+            return set()
+        changed = set(py_trigger)
+        out: set[str] = set()
+        for rel in current:
+            if not rel.endswith(SPEC_SUFFIX):
+                continue
+            module_rel = self._spec_module_rel(rel)
+            if module_rel is not None and module_rel in changed:
+                out.add(rel)
+        return out
+
+    def _spec_module_rel(self, spec_rel: str) -> str | None:
+        """The repo-relative path of a spec's ``module`` field, or None if it has none / cannot resolve."""
+        try:
+            data = json.loads((Path(self.root) / spec_rel).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        module = data.get("module") if isinstance(data, dict) else None
+        if not isinstance(module, str):
+            return None
+        spec_dir = (Path(self.root) / spec_rel).parent
+        try:
+            return (spec_dir / module).resolve().relative_to(Path(self.root).resolve()).as_posix()
+        except (ValueError, OSError):
+            return None
+
+    def _agent_scaffold(self, rel: str) -> RunCard | None:
+        """If ``rel`` classifies as an agent, write a starter eval scaffold beside it (once) and a card.
+
+        None unless the file is an agent. If a real spec already exists it defers to that (the spec
+        path grades it). The scaffold is written only when absent — a developer's edits are never
+        overwritten — and is inert (``.scaffold``) until they activate it.
+        """
+        path = Path(self.root) / rel
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        result = classify_source(source, name=path.name)
+        if result.abstention is not None:
+            return None
+        if Situation.agent_action not in {situation for situation, _ in result.labels}:
+            return None
+
+        stem = path.name[:-3] if path.name.endswith(".py") else path.stem
+        activated = path.with_name(f"{stem}.agent.eval.json")
+        if activated.exists():
+            return None  # a real agent spec exists; the spec path grades it, no scaffold needed
+
+        scaffold = path.with_name(f"{stem}{SCAFFOLD_SUFFIX}")
+        wrote = False
+        if not scaffold.exists():
+            try:
+                scaffold.write_text(scaffold_agent_eval(rel, source), encoding="utf-8")
+                wrote = True
+            except OSError:
+                pass
+        scaffold_rel = scaffold.relative_to(self.root).as_posix()
+        verb = "wrote a starter eval to" if wrote else "a starter eval is at"
+        detail = (
+            "looks like an agent (an LLM call inside a tool-dispatch loop); agents are graded by their "
+            f"real end state, which I can't infer. {verb} {scaffold_rel} — fill in the end-state checks "
+            "and drop the '.scaffold' suffix to grade it."
+        )
+        case = CaseCard(
+            artifact=rel, name="agent detected — eval scaffold ready", record="agent_scaffold",
+            verdict="inconclusive", detail=detail, failure_class="", rung=None, kind="scaffold",
+            oracle=scaffold_rel,
+        )
+        return RunCard(
+            run_id="scaffold:agent", outcome="undecided", trigger=(rel,), situations=("agent_action",),
+            cases=(case,), permission_requests=(), at=self._clock(),
+        )
 
     def _grade_spec(self, rel: str) -> RunCard:
         """Grade one ``*.eval.json`` spec into a card, turning any failure into an errored card."""

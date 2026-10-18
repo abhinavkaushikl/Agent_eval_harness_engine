@@ -117,6 +117,25 @@ _HTML = r"""<!doctype html>
     background:rgba(255,77,77,.08);border-left:2px solid var(--bad);border-radius:9px;
     padding:10px 12px;margin-top:6px;white-space:pre-wrap;word-break:break-word}
   .empty{text-align:center;color:var(--dim);padding:60px 0;font-size:15px}
+
+  /* the pipeline DAG: Change -> Situation -> Technique -> Result */
+  .dagwrap{padding:8px 6px 14px;overflow-x:auto}
+  svg.dag{display:block;min-width:720px}
+  .dag .dlab{fill:var(--faint);font-size:11px;font-weight:700;letter-spacing:.12em}
+  .dag .dedge{fill:none;stroke:var(--hair);stroke-width:1.5}
+  .dag .dedge.passed{stroke:rgba(47,211,107,.45)}
+  .dag .dedge.failed{stroke:rgba(255,77,77,.5)}
+  .dag .dedge.inconclusive{stroke:rgba(255,176,32,.5)}
+  .dag .dnode rect{fill:var(--panel);stroke:var(--hair);stroke-width:1.2}
+  .dag .dnode text{fill:var(--ink);font-size:12.5px;font-weight:600}
+  .dag .dnode.file rect{stroke:rgba(255,255,255,.14)}
+  .dag .dnode.sit rect{stroke:rgba(123,120,255,.55)}
+  .dag .dnode.tech rect{stroke:rgba(123,120,255,.32)}
+  .dag .dnode.passed rect{fill:rgba(47,211,107,.14);stroke:rgba(47,211,107,.55)}
+  .dag .dnode.failed rect{fill:rgba(255,77,77,.14);stroke:rgba(255,77,77,.6)}
+  .dag .dnode.inconclusive rect{fill:rgba(255,176,32,.14);stroke:rgba(255,176,32,.55)}
+  .dag .dnode.click:hover rect{filter:brightness(1.25)}
+  .dagdetail{padding:2px 18px 16px}
   @media (prefers-reduced-motion:reduce){.pulse::after,.spin,.run.new{animation:none}}
 </style>
 </head>
@@ -133,7 +152,7 @@ _HTML = r"""<!doctype html>
   <div class="lab">What it evaluates</div>
   <div class="cats" id="cats"></div>
 
-  <div class="lab">Runs</div>
+  <div class="lab">Pipeline</div>
   <div id="runs"></div>
 </div>
 
@@ -153,12 +172,14 @@ const TECH={
  rag:{l:"RAG recall@k",d:"gold passages checked against what was retrieved, with an interval"},
  agent:{l:"Agent end-state",d:"the real database / filesystem state was verified"},
  db_access:{l:"Read-only DB validation",d:"your file's SQL was run read-only against a snapshot — only reads, schema-grounded, executes"},
+ agent_scaffold:{l:"Agent detected",d:"flagged as an agent (LLM call in a tool-dispatch loop); grade it by filling the end-state checks in the scaffold dropped beside the file"},
 };
 const MOOD={idle:"Watching",evaluating:"Evaluating",happy:"All clean",alarmed:"Problem found",unsure:"Undecided",errored:"Run errored"};
 const DOT={idle:"var(--accent)",evaluating:"var(--accent)",happy:"var(--ok)",alarmed:"var(--bad)",unsure:"var(--meh)",errored:"var(--bad)"};
 const VWORD={passed:"PASS",failed:"FAIL",inconclusive:"PENDING"};
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const base=p=>String(p||"").replace(/[\/\\]+$/,"").split(/[\/\\]/).pop()||"—";
+const ellip=(s,n)=>{s=String(s);return s.length<=n?s:s.slice(0,n-1)+"…";};
 const ago=t=>{const d=Date.now()/1000-t;if(d<5)return"just now";if(d<60)return Math.floor(d)+"s ago";if(d<3600)return Math.floor(d/60)+"m ago";return Math.floor(d/3600)+"h ago";};
 
 const OPEN=new Set(); let LAST=null, SIG="";
@@ -232,38 +253,54 @@ function paint(s){
       `<span class="nm">${c.name}</span><span class="st">${on?'ACTIVE':'READY'}</span></div>`;
   }).join("");
 
+  drawDag(runs);
+}
+
+// --- the pipeline DAG: Change -> Situation -> Technique -> Result, for the latest real run ---
+function drawDag(runs){
   const host=document.getElementById("runs");
-  if(!runs.length){host.innerHTML=`<div class="run"><div class="empty">Nothing evaluated yet.<br>Edit a file — I’ll test it and lay out every case here.</div></div>`;return;}
-  host.innerHTML=runs.map((r,ri)=>{
-    if(r.outcome==="errored")
-      return `<div class="run ${ri===0?'new':''}"><div class="rh"><span class="chip errored">errored</span><span class="file">a run failed</span><span class="when">${ago(r.at)}</span></div><div style="padding:14px 18px"><div class="evidence">${esc(r.error||"")}</div></div></div>`;
-    const file=(r.trigger||[]).map(x=>`<code>${esc(base(x))}</code>`).join(" ")||"<code>first look</code>";
-    const rows=(r.cases||[]).map((c,ci)=>{
-      const t=TECH[c.record]||{l:c.record,d:""};
-      const key=ri+":"+ci, open=OPEN.has(key);
-      const conf=c.confidence?`<span class="conf ${esc(c.confidence)}">${esc(c.confidence.toUpperCase())}</span>`:`<span class="conf na">—</span>`;
-      const resShort=c.verdict==="failed"?(c.failure_class||"failed"):(c.verdict==="passed"?"ok":"pending");
-      let out=`<tr class="crow ${open?'open':''}" onclick="toggleCase('${key}')">`+
-        `<td><span class="dot ${esc(c.verdict)}"></span></td>`+
-        `<td class="cn">${esc(c.name||"case")}</td>`+
-        `<td class="tech">${esc(t.l)}</td>`+
-        `<td>${conf}</td>`+
-        `<td><span class="res ${esc(c.verdict)}">${VWORD[c.verdict]||c.verdict}</span> <span style="color:var(--faint);font-weight:400">${esc(resShort)}</span> <span class="chev">▸</span></td></tr>`;
-      if(open) out+=`<tr class="detrow"><td colspan="5">${detail(c,r)}</td></tr>`;
-      return out;
-    }).join("");
-    const rt=r.rate;
-    let rateEl="";
-    if(rt){const pct=Math.round(rt.estimate*100), lo=Math.round(rt.lower*100), hi=Math.round(rt.upper*100);
-      const col=rt.estimate>=.999?"var(--ok)":(rt.failed>0?"var(--bad)":"var(--meh)");
-      rateEl=`<span class="rate" title="${Math.round((rt.confidence||.95)*100)}% Wilson interval over ${rt.n} decided cases">`+
-        `<span class="pct" style="color:${col}">${pct}%</span><span class="ci">[${lo}–${hi}%] n=${rt.n}</span></span>`;}
-    return `<div class="run ${ri===0?'new':''}"><div class="rh">`+
-      `<span class="chip ${esc(r.outcome)}">${esc(r.outcome)}</span>`+
-      `<span class="file">tested ${file}</span>${rateEl}<span class="when">${ago(r.at)}</span></div>`+
-      `<table class="ct"><thead><tr><th></th><th>Test case</th><th>Technique</th><th>Conf</th><th>Result</th></tr></thead>`+
-      `<tbody>${rows||'<tr><td colspan="5" style="padding:14px 18px;color:var(--dim)">nothing was graded</td></tr>'}</tbody></table></div>`;
-  }).join("");
+  const run=runs.find(r=>(r.cases||[]).length)||runs[0];
+  if(!run){host.innerHTML=`<div class="run"><div class="empty">Nothing evaluated yet.<br>Edit a file — I’ll graph the pipeline here.</div></div>`;return;}
+  if(run.outcome==="errored"){
+    host.innerHTML=`<div class="run"><div class="rh"><span class="chip errored">errored</span><span class="file">a run failed</span><span class="when">${ago(run.at)}</span></div><div style="padding:14px 18px"><div class="evidence">${esc(run.error||"")}</div></div></div>`;
+    return;
+  }
+  const files=(run.trigger&&run.trigger.length)?run.trigger.map(base):["repository"];
+  let sits=(run.situations||[]).map(x=>String(x).split(" (")[0]); if(!sits.length)sits=["unclassified"];
+  const cases=run.cases||[];
+  let techs=[...new Set(cases.map(c=>c.record))]; if(!techs.length)techs=["(none ready)"];
+  const cols=[
+    files.map(fn=>({label:fn,cls:"file"})),
+    sits.map(s=>({label:s,cls:"sit"})),
+    techs.map(t=>({label:(TECH[t]&&TECH[t].l)||t,cls:"tech",rec:t})),
+    cases.map((c,ci)=>({label:c.name||"case",cls:c.verdict,key:"n"+ci,cse:c}))
+  ];
+  const X=[90,330,560,840], W=[150,170,170,220], gap=58, top=58;
+  const rows=Math.max(1,...cols.map(c=>c.length));
+  const H=top+rows*gap+8, mid=top+rows*gap/2;
+  cols.forEach((col,ci)=>col.forEach((nd,k)=>{nd.x=X[ci];nd.w=W[ci];nd.y=mid+(k-(col.length-1)/2)*gap;}));
+
+  let svg=`<svg class="dag" viewBox="0 0 960 ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMin meet">`;
+  ["Change","Situation","Technique","Result"].forEach((lab,ci)=>{svg+=`<text class="dlab" x="${X[ci]-W[ci]/2}" y="26">${lab}</text>`;});
+  const edges=(a,b,match)=>{let e="";a.forEach(na=>b.forEach(nb=>{if(match&&!match(na,nb))return;const x1=na.x+na.w/2,x2=nb.x-nb.w/2,mx=(x1+x2)/2;const cls=["passed","failed","inconclusive"].includes(nb.cls)?nb.cls:"";e+=`<path class="dedge ${cls}" d="M ${x1} ${na.y} C ${mx} ${na.y}, ${mx} ${nb.y}, ${x2} ${nb.y}"/>`;}));return e;};
+  svg+=edges(cols[0],cols[1]);
+  svg+=edges(cols[1],cols[2]);
+  svg+=edges(cols[2],cols[3],(t,c)=>c.cse&&c.cse.record===t.rec);
+  cols.forEach(col=>col.forEach(nd=>{
+    const rx=nd.x-nd.w/2, ry=nd.y-17;
+    const click=nd.key?`class="dnode ${nd.cls} click" onclick="toggleCase('${nd.key}')"`:`class="dnode ${nd.cls}"`;
+    svg+=`<g ${click}><rect x="${rx}" y="${ry}" width="${nd.w}" height="34" rx="9"/><text x="${nd.x}" y="${nd.y+4}" text-anchor="middle">${esc(ellip(nd.label,26))}</text></g>`;
+  }));
+  svg+=`</svg>`;
+
+  let det="";
+  cases.forEach((c,ci)=>{if(OPEN.has("n"+ci))det+=`<div class="dagdetail">${detail(c,run)}</div>`;});
+  const rt=run.rate; let rate="";
+  if(rt){const pct=Math.round(rt.estimate*100),lo=Math.round(rt.lower*100),hi=Math.round(rt.upper*100);
+    const col=rt.estimate>=.999?"var(--ok)":(rt.failed>0?"var(--bad)":"var(--meh)");
+    rate=`<span class="rate" title="${Math.round((rt.confidence||.95)*100)}% Wilson interval over ${rt.n} decided cases"><span class="pct" style="color:${col}">${pct}%</span><span class="ci">[${lo}–${hi}%] n=${rt.n}</span></span>`;}
+  const file=(run.trigger||[]).map(x=>`<code>${esc(base(x))}</code>`).join(" ")||"<code>first look</code>";
+  host.innerHTML=`<div class="run new"><div class="rh"><span class="chip ${esc(run.outcome)}">${esc(run.outcome)}</span><span class="file">tested ${file}</span>${rate}<span class="when">${ago(run.at)}</span></div><div class="dagwrap">${svg}</div>${det||'<div class="dagdetail" style="color:var(--faint);font-size:12.5px">click a result node to see why it ran and what happened</div>'}</div>`;
 }
 
 function signature(s){

@@ -50,7 +50,7 @@ def _c(hex_color: str) -> QtGui.QColor:
 def _body_transform(ox: float, oy: float, s: float, p: Pose, extra_lean: float) -> QtGui.QTransform:
     """Figure space (feet at origin, y up) -> screen, with the lean sheared in as one rigid plank."""
     t = QtGui.QTransform()
-    t.translate(ox, oy)
+    t.translate(ox + p.glide * s, oy)                 # glide: the moonwalk sideways slide (feet too)
     t.scale(s, -s)                                    # figure units -> px, y points up
     t.translate(0.0, p.bob)                           # bob lifts the whole body
     t.shear((p.lean + extra_lean) / FIGURE_HEIGHT, 0.0)   # lean: x += (lean/H)*y  — feet (y=0) fixed
@@ -110,18 +110,24 @@ def draw_figure_qt(painter: QtGui.QPainter, ox: float, oy: float, s: float, p: P
     limb((-13.0, 63.0), (-18.5 + p.swing, 43.0), 5.0, suit)
     ellipse(-18.5 + p.swing, 41.0, 2.7, 2.7, skin, outline=True)
 
-    # legs: white trousers (subtle gradient for form), black shoes + ankle band
+    # legs: white trousers (subtle gradient for form), black shoes + ankle band.
+    # Each leg lifts (knee bends, foot rises) on its beat with a small sideways kick — the dance step.
     grad = QtGui.QLinearGradient(QtCore.QPointF(-13, 0), QtCore.QPointF(13, 0))
     grad.setColorAt(0.0, _c("#dcdcd8"))
     grad.setColorAt(0.55, _c(PALETTE["suit"]))
     grad.setColorAt(1.0, _c("#ffffff"))
+    lift_amp = 7.0
     for sx in (-1, 1):
         x0, x1 = sorted((sx * 1.4, sx * 12.8))
+        lift = max(0.0, (p.step if sx < 0 else -p.step)) * lift_amp
+        kick = lift * 0.35 * sx
+        x0 += kick
+        x1 += kick
         painter.setPen(ink_pen)
         painter.setBrush(QtGui.QBrush(grad))
-        painter.drawPolygon(_poly([(x0, 5), (x1, 5), (x1, 36), (x0, 36)]))
-        fill([(x0, 0), (x1, 0), (x1, 5), (x0, 5)], hair, outline=True)   # shoe
-        fill([(x0, 8), (x1, 8), (x1, 11), (x0, 11)], hair)              # ankle band
+        painter.drawPolygon(_poly([(x0, 5 + lift), (x1, 5 + lift), (x1, 36), (x0, 36)]))
+        fill([(x0, 0 + lift), (x1, 0 + lift), (x1, 5 + lift), (x0, 5 + lift)], hair, outline=True)   # shoe
+        fill([(x0, 8 + lift), (x1, 8 + lift), (x1, 11 + lift), (x0, 11 + lift)], hair)              # ankle band
 
     # torso: white jacket (left-lit gradient), blue shirt V, white tie, lapels, belt
     painter.setPen(ink_pen)
@@ -365,7 +371,7 @@ class _Panel(QtWidgets.QWidget):
         y += 54
 
         tech = {"A1_execution_based": "execution", "sql": "SQL match", "rag": "RAG recall",
-                "agent": "end-state", "db_access": "DB read-only"}
+                "agent": "end-state", "db_access": "DB read-only", "agent_scaffold": "agent detected"}
 
         def ellip(s: str, n: int) -> str:
             return s if len(s) <= n else s[: n - 1] + "…"

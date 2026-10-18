@@ -204,3 +204,59 @@ def test_lowercase_sql_shape_needs_an_executor() -> None:
 def test_the_classifier_reads_the_ast_never_regex() -> None:
     text = Path(heuristics.__file__).read_text(encoding="utf-8")
     assert "import re\n" not in text and "from re " not in text
+
+
+# -- agents: an LLM call inside a tool-dispatch loop ------------------------------
+
+
+def test_an_llm_call_in_a_tool_dispatch_loop_is_an_agent() -> None:
+    source = (
+        "def run(client, tools, task):\n"
+        "    messages = [{'role': 'user', 'content': task}]\n"
+        "    while True:\n"
+        "        reply = client.messages.create(model='m', messages=messages, tools=tools)\n"
+        "        if reply.stop_reason != 'tool_use':\n"
+        "            return reply\n"
+        "        for call in reply.tool_calls:\n"
+        "            result = TOOLS[call.name](**call.args)\n"
+        "            messages.append({'role': 'tool', 'content': result})\n"
+    )
+    result = classify_source(source, name="agent.py")
+    assert result.labels == ((Situation.agent_action, 1.0),)
+    assert "tool-dispatch loop" in result.findings[0].reasoning
+
+
+def test_a_chat_loop_without_tool_dispatch_is_not_an_agent() -> None:
+    """A completion call in a loop, but no tool routing — a chatbot, not an agent."""
+    source = (
+        "def chat(client):\n"
+        "    history = []\n"
+        "    while True:\n"
+        "        reply = client.chat.completions.create(model='m', messages=history)\n"
+        "        history.append(reply)\n"
+    )
+    assert classify_source(source, name="chat.py").labels == ((Situation.code_generation, 1.0),)
+
+
+def test_a_one_shot_tool_call_is_not_an_agent() -> None:
+    """Structured tool use with no loop is not an agent; the loop is the discriminator."""
+    source = (
+        "def classify(client, tools, text):\n"
+        "    return client.messages.create(model='m', messages=[{'role': 'user', 'content': text}], tools=tools)\n"
+    )
+    assert classify_source(source, name="once.py").labels == ((Situation.code_generation, 1.0),)
+
+
+def test_agent_detection_is_deterministic() -> None:
+    source = (
+        "def loop(client, registry):\n"
+        "    while True:\n"
+        "        r = client.responses.create(model='m', input='go', tools=registry)\n"
+        "        if not r.tool_calls:\n"
+        "            return r\n"
+        "        for c in r.tool_calls:\n"
+        "            getattr(registry, c.name)(c.args)\n"
+    )
+    first = classify_source(source, name="a.py")
+    assert first.labels == ((Situation.agent_action, 1.0),)
+    assert classify_source(source, name="a.py") == first
