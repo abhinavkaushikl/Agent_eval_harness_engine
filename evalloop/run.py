@@ -43,10 +43,12 @@ verdict (EL-201's content-hash skip) and says it skipped, rather than grading it
 
 M1 scope and limits
 -------------------
-The driver evaluates **top-level functions in flat modules**: the artifact is placed under its file
-stem and graded against a harvested test that imports it by that stem (Gate 1's shape). A packaged
-import path (``from pkg.mod import f``) is not reconstructed here — a stated limit, not a silent
-skip. Methods, SQL and API artifacts, and authored oracles are out of M1's grading scope.
+The driver evaluates **top-level functions**. A flat module is placed under its file stem and graded
+against a harvested test that imports it by that stem (Gate 1's shape). A module inside a package
+(every directory up to the top one has an ``__init__.py``) is placed with its whole top-level package
+and imported by its dotted path, so ``from pkg.mod import f`` resolves. Imports of anything outside
+that package (sibling top-level packages, test-suite fixtures, repo data) are not reconstructed: a
+test that needs them comes back inconclusive with pytest's reason, never a silent skip. Methods, SQL and API artifacts, and authored oracles are out of M1's grading scope.
 """
 
 from __future__ import annotations
@@ -239,6 +241,56 @@ def _author_one(
     return outcome.oracle
 
 
+@dataclass(frozen=True, slots=True)
+class _Package:
+    """A packaged artifact's sandbox context: its dotted import path and its top package's files."""
+
+    import_name: str
+    files: Mapping[str, str]
+
+
+def _package_context(root: Path, file: Path, source: str) -> _Package | None:
+    """The package ``file`` sits in, read from disk, or None for a flat module.
+
+    The top package is the highest directory, still inside ``root``, that every directory down to the
+    file marks with ``__init__.py``. Its text files go in at paths relative to its parent, with the
+    artifact's current ``source``; caches, hidden files and non-UTF-8 files stay out.
+    """
+    top: Path | None = None
+    current = file.parent
+    while current != root.parent and (current / "__init__.py").is_file() and root in (current, *current.parents):
+        top = current
+        current = current.parent
+    if top is None:
+        return None
+    base = top.parent
+    parts = list(file.relative_to(base).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    if not all(part.isidentifier() for part in parts):
+        return None
+    files: dict[str, str] = {}
+    for path in sorted(top.rglob("*")):
+        rel = path.relative_to(base)
+        if not path.is_file() or any(part == "__pycache__" or part.startswith(".") for part in rel.parts):
+            continue
+        try:
+            files[rel.as_posix()] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    files[file.relative_to(base).as_posix()] = source
+    return _Package(".".join(parts), files)
+
+
+def _oracle_hash(oracle_source: str, package: _Package | None) -> str:
+    """The oracle's hash, widened to the package it runs against: editing a sibling module must
+    re-grade, not reuse, a verdict that imported it (EL-201's content-hash skip)."""
+    if package is None:
+        return content_hash(oracle_source.encode("utf-8"))
+    digest = "\n".join(f"{rel}:{content_hash(text.encode('utf-8'))}" for rel, text in sorted(package.files.items()))
+    return content_hash(f"{oracle_source}\n{digest}".encode("utf-8"))
+
+
 def _grade_one(
     *,
     artifact_rel: str,
@@ -254,6 +306,7 @@ def _grade_one(
     seed: int,
     workdir_root: str | None,
     acc: _Accumulator,
+    package: _Package | None = None,
 ) -> None:
     artifact_hash = content_hash(artifact_source.encode("utf-8"))
     # Content-hash skip (EL-201): an unchanged artifact + oracle already judged conclusively is reused.
@@ -276,6 +329,7 @@ def _grade_one(
         float_tolerance=1e-6,
         seed=seed,
         workdir_root=workdir_root,
+        package_files=package.files if package is not None else None,
     )
     acc.cases.extend(report.cases)
     acc.graded.append(f"{artifact_rel} vs {oracle_id}")
@@ -443,15 +497,18 @@ def check(
                 continue
             for oracle in tests:
                 oracle_files.setdefault(oracle.provenance.path, harvest_root / oracle.provenance.path)
+        package = _package_context(root, file, source) if root.is_dir() and oracle_files else None
         for test_rel, oracle_abs in sorted(oracle_files.items()):
             try:
                 oracle_source = oracle_abs.read_text(encoding="utf-8")
             except OSError:
                 continue
             _grade_one(
-                artifact_rel=rel, artifact_source=source, import_name=import_name,
-                oracle_id=test_rel, oracle_source=oracle_source, oracle_hash=content_hash(oracle_source.encode("utf-8")),
+                artifact_rel=rel, artifact_source=source,
+                import_name=package.import_name if package is not None else import_name,
+                oracle_id=test_rel, oracle_source=oracle_source, oracle_hash=_oracle_hash(oracle_source, package),
                 run_id=run_id, prior=prior, limits=limits, seed=seed, workdir_root=workdir_str, acc=acc,
+                package=package,
             )
 
     if specs and root.is_dir():

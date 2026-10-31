@@ -75,7 +75,7 @@ from __future__ import annotations
 import ast
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from evalloop.grade.sandbox import run_sandboxed
@@ -252,6 +252,11 @@ def _classify(entry: dict[str, str]) -> _CaseOutcome:
     crash = entry.get("crash", "")
     if outcome == "passed":
         return _CaseOutcome(node, Verdict.passed, None, None, None, None)
+    # A fixture the sandbox does not have (it lives in the repo's conftest.py, which is not carried in)
+    # is the harness failing, not the artifact: the test never reached the code under test.
+    if entry.get("exc", "") == "FixtureLookupError":
+        reason = f"the test needs a fixture the sandbox does not carry ({crash or 'fixture not found'})"
+        return _CaseOutcome(node, Verdict.inconclusive, None, None, reason, None)
     # A failure: a wrong answer (the oracle's assertion did not hold) is a different finding from the
     # artifact raising. The exception type is read from the report, not parsed from the message.
     exception = entry.get("exc", "")
@@ -314,7 +319,13 @@ def _result(
 
 
 def _run_oracle(
-    artifact_source: str, import_name: str, oracle_source: str, limits: Limits, seed: int, workdir_root: str | None
+    artifact_source: str,
+    import_name: str,
+    oracle_source: str,
+    limits: Limits,
+    seed: int,
+    workdir_root: str | None,
+    package_files: Mapping[str, str] | None = None,
 ) -> tuple[list[dict[str, str]], SandboxResult]:
     """Run the oracle against the artifact in the sandbox. Returns the parsed case lines and the result.
 
@@ -323,12 +334,17 @@ def _run_oracle(
     is never told. ``PYTHONPATH="."`` makes the artifact importable from its own directory. The
     reporter ``conftest.py`` lives beside the oracle, so pytest loads it and it never enters the
     artifact's directory.
+
+    A packaged artifact (``from pkg.mod import f``) brings ``package_files`` instead: its package's
+    files at their package-relative paths, the artifact among them, so the dotted import resolves
+    from ``subject/``. The oracle still sits outside it.
     """
-    files = {
-        f"{_SUBJECT_DIR}/{import_name}.py": artifact_source,
-        _ORACLE_FILE: oracle_source,
-        _ORACLE_CONFTEST: _CONFTEST,
-    }
+    if package_files is not None:
+        files = {f"{_SUBJECT_DIR}/{rel}": text for rel, text in package_files.items()}
+    else:
+        files = {f"{_SUBJECT_DIR}/{import_name}.py": artifact_source}
+    files[_ORACLE_FILE] = oracle_source
+    files[_ORACLE_CONFTEST] = _CONFTEST
     # --import-mode=importlib stops pytest from putting the oracle's directory on sys.path, so the
     # artifact cannot ``import`` the oracle module; the artifact is importable only via PYTHONPATH.
     command = [
@@ -362,17 +378,19 @@ def grade_execution(
     seed: int = 0,
     confidence: float = 0.95,
     workdir_root: str | None = None,
+    package_files: Mapping[str, str] | None = None,
 ) -> GradeReport:
     """Grade ``artifact_source`` against the harvested ``oracle_source`` by running it (never reading it).
 
-    ``import_name`` is the module the oracle imports the artifact by. ``float_tolerance`` is A1's
+    ``import_name`` is the module the oracle imports the artifact by: a flat stem, or a dotted path
+    when ``package_files`` carries the artifact's package (see :func:`_run_oracle`). ``float_tolerance`` is A1's
     ``parameters`` value (EL-015), supplied by the caller; the oracle performs the comparison in the
     pytest model, so it is recorded for provenance rather than consumed here (see the report).
     Whether a failure is the current change's fault is :func:`attributable_regressions`, given an
     EL-205 baseline.
     """
     _ = float_tolerance  # A1 parameter, threaded for provenance; the oracle does the comparison
-    if not import_name.isidentifier():
+    if not all(part.isidentifier() for part in import_name.split(".")):
         raise GradeError(f"import_name {import_name!r} is not a valid module name")
     artifact_hash = content_hash(artifact_source.encode("utf-8"))
 
@@ -387,7 +405,9 @@ def grade_execution(
         )
         return GradeReport(artifact_id, oracle_id, (case,), confidence)
 
-    entries, result = _run_oracle(artifact_source, import_name, oracle_source, sandbox_limits, seed, workdir_root)
+    entries, result = _run_oracle(
+        artifact_source, import_name, oracle_source, sandbox_limits, seed, workdir_root, package_files
+    )
     sandbox_outcome = result.classify()
     per_case_duration = result.duration_seconds / max(len(entries), 1)
 

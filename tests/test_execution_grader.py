@@ -201,3 +201,16 @@ def test_grading_is_deterministic() -> None:
     first, second = _grade(BROKEN), _grade(BROKEN)
     assert _verdicts(first) == _verdicts(second)
     assert [c.case_id for c in first.cases] == [c.case_id for c in second.cases]
+
+
+def test_a_fixture_the_sandbox_lacks_is_inconclusive_not_a_failure() -> None:
+    """The repo's conftest.py is not carried into the sandbox; a missing fixture never reached the code."""
+    from evalloop.grade.execution import _classify
+    from evalloop.memory.case import Verdict
+
+    missing = _classify({"nodeid": "oracle/test_oracle.py::t", "when": "setup", "outcome": "failed",
+                         "exc": "FixtureLookupError", "crash": "fixture 'corpus_dir' not found"})
+    assert missing.verdict is Verdict.inconclusive and "corpus_dir" in (missing.reason or "")
+    broken = _classify({"nodeid": "oracle/test_oracle.py::t", "when": "setup", "outcome": "failed",
+                        "exc": "ValueError", "crash": "bad"})
+    assert broken.verdict is Verdict.failed  # a fixture that exists but raises may be the artifact's fault
