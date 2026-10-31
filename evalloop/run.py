@@ -56,13 +56,14 @@ from __future__ import annotations
 import ast
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
 from evalloop._compat import StrEnum
 from evalloop.classify import Abstention, classify_file
 from evalloop.grade.execution import grade_execution
+from evalloop.grade.native import NativeRun, run_native
 from evalloop.grade.specs import SPEC_SUFFIX, SpecError, SpecResult, grade_spec_file
 from evalloop.capability.llm import Clearance
 from evalloop.capability.router import Router
@@ -338,6 +339,22 @@ def _grade_one(
 # -- the loop -----------------------------------------------------------------------
 
 
+def _calibrated(case: CaseResult, native: NativeRun) -> CaseResult:
+    """A sandbox failure whose test passes in the repo's own environment is the sandbox's, not the code's."""
+    if case.verdict is not Verdict.failed or native.outcome_of(case.oracle_id) != "passed":
+        return case
+    return replace(
+        case,
+        verdict=Verdict.inconclusive,
+        failure_class=None,
+        timeout=None,
+        inconclusive_reason=(
+            "fails in the sandbox but passes in the repo's own environment (native pytest), so the sandbox "
+            "lacks something this test needs; not charged to the code"
+        ),
+    )
+
+
 def _grade_specs(root: Path, acc: _Accumulator) -> None:
     """Grade every ``*.eval.json`` under ``root``; a spec that cannot run is a note, never a skip."""
     for spec_path in sorted(root.rglob(f"*{SPEC_SUFFIX}")):
@@ -386,6 +403,8 @@ def check(
     workdir_root: str | os.PathLike[str] | None = None,
     author: Author | None = None,
     specs: bool = True,
+    calibrate_native: bool = False,
+    native_seconds: float = 300.0,
 ) -> RunResult:
     """Run the whole M1 loop on ``path`` and write ``summary.md``. One shot; returns a :class:`RunResult`.
 
@@ -394,6 +413,8 @@ def check(
     default and the guarantee of zero egress. ``wall_seconds`` bounds each grading run (A1's
     ``timeout`` parameter once EL-015 lands; supplied here, never a literal in grader logic).
     ``specs`` also grades every ``*.eval.json`` (SQL / RAG / agent) under ``path`` into the report.
+    ``calibrate_native`` runs the repo's own pytest once, unsandboxed, and withholds the verdict on any
+    sandbox failure that passes there (:mod:`evalloop.grade.native`); ``native_seconds`` bounds it.
     """
     root = Path(path)
     if not root.exists():
@@ -521,6 +542,10 @@ def check(
             f"repository unchanged since run {run_id}: reused all {len(existing.cases)} verdict(s), graded nothing"
         )
     elif acc.cases:
+        if calibrate_native and root.is_dir() and any(c.verdict is Verdict.failed for c in acc.cases):
+            native = run_native(root, timeout_seconds=native_seconds)
+            acc.notes.append(native.note)
+            acc.cases[:] = [_calibrated(c, native) for c in acc.cases]
         store.write_run(run_id, acc.cases)
 
     outcome, outcome_notes = _outcome(acc)

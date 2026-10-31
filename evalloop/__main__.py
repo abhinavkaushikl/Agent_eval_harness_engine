@@ -31,6 +31,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="grade on harvested oracles only, with zero egress (the M1 default and guarantee)",
     )
     run.add_argument("--wall-seconds", type=float, default=30.0, help="per-grading wall-clock cap")
+    run.add_argument(
+        "--calibrate-native",
+        action="store_true",
+        help="also run the repo's own pytest once, OUTSIDE the sandbox; a sandbox failure whose test passes "
+        "there is reported inconclusive (environment), not as a problem",
+    )
+    run.add_argument("--native-seconds", type=float, default=300.0, help="wall-clock cap for the native run")
 
     conn = sub.add_parser("connect", help="discover the databases and vector stores a repo talks to")
     conn.add_argument("path", help="the repository to scan (nothing is opened)")
@@ -83,6 +90,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             no_llm=args.no_llm,
             seed=args.seed,
             wall_seconds=args.wall_seconds,
+            calibrate_native=args.calibrate_native,
+            native_seconds=args.native_seconds,
         )
         _print_result(result, sys.stdout)
         return result.exit_code

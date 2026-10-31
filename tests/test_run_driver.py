@@ -214,3 +214,38 @@ def test_a_module_inside_a_package_is_graded_by_its_dotted_import(tmp_path: Path
     graded = [c for c in result.cases if c.artifact_id == "shop/pricing/calc.py"]
     assert graded and all(c.verdict.value != "inconclusive" for c in graded)
     assert result.outcome is outcome
+
+
+def _env_dependent_repo(tmp_path: Path, body: str) -> Path:
+    """A test that reads a data file beside itself: present natively, absent in the sandbox."""
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "scale.py").write_text(f"def scale(x, k):\n    {body}\n", encoding="utf-8")
+    (repo / "tests" / "factor.txt").write_text("3\n", encoding="utf-8")
+    (repo / "tests" / "test_scale.py").write_text(
+        "from pathlib import Path\nfrom scale import scale\n\n"
+        "def test_uses_data_beside_it():\n"
+        "    k = int((Path(__file__).parent / 'factor.txt').read_text())\n"
+        "    assert scale(2, k) == 6\n\n"
+        "def test_plain():\n    assert scale(1, 4) == 4\n",
+        encoding="utf-8",
+    )
+    return repo
+
+
+def test_native_calibration_withholds_a_failure_only_the_sandbox_causes(tmp_path: Path) -> None:
+    repo = _env_dependent_repo(tmp_path, "return x * k")
+    plain = check(repo, store_dir=tmp_path / "s1")
+    assert plain.outcome is RunOutcome.problem  # without the flag the sandbox's missing file is charged
+    calibrated = check(repo, store_dir=tmp_path / "s2", calibrate_native=True)
+    (env_case,) = [c for c in calibrated.cases if c.case_id.endswith("test_uses_data_beside_it")]
+    assert env_case.verdict.value == "inconclusive" and "native pytest" in (env_case.inconclusive_reason or "")
+    assert calibrated.outcome is RunOutcome.clean
+    assert any("native pytest ran" in note for note in calibrated.notes)
+
+
+def test_native_calibration_never_excuses_a_real_bug(tmp_path: Path) -> None:
+    repo = _env_dependent_repo(tmp_path, "return x + k")  # wrong everywhere, natively too
+    result = check(repo, store_dir=tmp_path / "store", calibrate_native=True)
+    (plain_case,) = [c for c in result.cases if c.case_id.endswith("test_plain")]
+    assert plain_case.verdict.value == "failed" and result.outcome is RunOutcome.problem
