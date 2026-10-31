@@ -24,8 +24,8 @@ Credentials
 The API key is read in exactly one place, :meth:`AnthropicHTTPTransport.from_environment`, from
 ``ANTHROPIC_API_KEY``. ``ARCHITECTURE.md`` §9: "Credentials in a grader: impossible by
 construction." The key lives in one name-mangled attribute. It is never repr'd, logged or put in
-an error message, and the test suite fails if any other module under ``evalloop/`` reads the
-environment.
+an error message, and the test suite fails if any module under ``evalloop/`` other than this one
+and ``capability/grok.py`` (the Groq credential, EL-016) reads the environment.
 
 Only the API-key path is supported here. The claude-api skill lists other real credential
 sources — ``ANTHROPIC_AUTH_TOKEN``, ``ant auth`` profiles, workload identity — and those belong to
@@ -121,7 +121,7 @@ __all__ = [
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 
-#: The one environment variable this package reads, in one function.
+#: The Anthropic credential, read in one function (Groq's lives in ``grok.py``, EL-016).
 API_KEY_VARIABLE = "ANTHROPIC_API_KEY"
 
 # claude-api skill, shared/error-codes.md: 429, 500 and 529 are retryable, and the SDKs also
@@ -294,8 +294,9 @@ class LLMRequest:
 class Clearance:
     """An explicit grant to send an artifact off this machine: who granted it, and why.
 
-    The M2 capability broker is meant to issue these. In M1 nothing does — see the module
-    docstring — so any call through a transport that leaves the machine is refused.
+    The M2 capability broker is meant to issue these. Until it lands, the one issuer is the
+    operator's ``evalloop start --author`` flag (EL-016); without it, any call through a transport
+    that leaves the machine is refused.
     """
 
     granted_by: str
@@ -422,7 +423,7 @@ class AnthropicHTTPTransport:
     def from_environment(
         cls, *, url: str = ANTHROPIC_MESSAGES_URL, opener: Opener = _urlopen
     ) -> AnthropicHTTPTransport:
-        """Read ``ANTHROPIC_API_KEY``. This is the only environment read in EvalLoop."""
+        """Read ``ANTHROPIC_API_KEY``, in this one place (the other credential reader is ``grok.py``, EL-016)."""
         key = os.environ.get(API_KEY_VARIABLE, "")
         if not key.strip():
             raise MissingCredential(f"{API_KEY_VARIABLE} is not set")

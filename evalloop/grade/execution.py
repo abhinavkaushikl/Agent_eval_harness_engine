@@ -266,7 +266,8 @@ def _ids(node_id: str, artifact_id: str, oracle_id: str) -> tuple[str, str]:
 
     A real test's node id is ``oracle/test_oracle.py::<suffix>`` (the sandbox path, the same for
     every artifact), so the stable case id is ``<artifact>::<suffix>`` and the oracle id names the
-    real test file plus that suffix. Synthetic nodes (compile/timeout/inconclusive) keep their id.
+    real test file plus that suffix. Synthetic nodes (compile/timeout/inconclusive) keep their id, which
+    names the artifact as well as the oracle: one test file can grade several artifacts in a run.
     """
     prefix = f"{_ORACLE_FILE}::"
     if node_id.startswith(prefix):
@@ -394,7 +395,7 @@ def grade_execution(
     # could not start (EL-014). A collection failure with no case lines is the oracle not running.
     if sandbox_outcome.verdict is Verdict.failed and sandbox_outcome.failure_class is FailureClass.timeout:
         case = _result(
-            _CaseOutcome(f"{oracle_id}::timeout", Verdict.failed, FailureClass.timeout, sandbox_outcome.timeout, None, None),
+            _CaseOutcome(f"{artifact_id}::{oracle_id}::timeout", Verdict.failed, FailureClass.timeout, sandbox_outcome.timeout, None, None),
             run_id=run_id, artifact_id=artifact_id, oracle_id=oracle_id, oracle_confidence=oracle_confidence,
             artifact_hash=artifact_hash, oracle_hash=oracle_hash, seed=seed, duration=result.duration_seconds,
         )
@@ -405,7 +406,7 @@ def grade_execution(
             f"(pytest said: {(result.stdout + result.stderr).strip()[-200:] or 'nothing'})"
         )
         case = _result(
-            _CaseOutcome(f"{oracle_id}::inconclusive", Verdict.inconclusive, None, None, reason, None),
+            _CaseOutcome(f"{artifact_id}::{oracle_id}::inconclusive", Verdict.inconclusive, None, None, reason, None),
             run_id=run_id, artifact_id=artifact_id, oracle_id=oracle_id, oracle_confidence=oracle_confidence,
             artifact_hash=artifact_hash, oracle_hash=oracle_hash, seed=seed, duration=result.duration_seconds,
         )

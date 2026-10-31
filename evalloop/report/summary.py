@@ -48,6 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from evalloop.grade.specs import SpecResult
 from evalloop.memory.case import CaseResult, FailureClass, OracleConfidence, Verdict
 from evalloop.memory.metric_store import Flip, Run, diff_runs
 from evalloop.plan.planner import Plan
@@ -105,6 +106,7 @@ class Session:
     prior_run_id: str | None = None
     prior_cases: tuple[CaseResult, ...] = ()
     confidence: float = 0.95
+    specs: tuple[tuple[str, SpecResult], ...] = ()
 
 
 def format_rate(passed: int, failed: int, *, confidence: float = 0.95) -> str:
@@ -225,11 +227,24 @@ def _s2_evaluated(session: Session) -> str:
     return _section("2. What was evaluated and how", body)
 
 
+def _spec_lines(specs: Sequence[tuple[str, SpecResult]]) -> list[str]:
+    """One block per ``*.eval.json``: its outcome, then every item's verdict and the reason for it."""
+    body = ["**Spec checks** (`*.eval.json`, each graded against its own reference)"]
+    for rel, spec in specs:
+        failed = sum(1 for c in spec.cases if c.verdict == "failed")
+        body.append(f"- `{rel}` ({spec.situation}): {spec.outcome.upper()} · {failed} of {len(spec.cases)} failed")
+        body.extend(f"    - {c.verdict}: {c.name} — {c.detail}" for c in spec.cases)
+    body.append("")
+    return body
+
+
 def _s3_findings(session: Session) -> str:
     grouped = _for_record(session.cases)
-    if not grouped:
+    if not grouped and not session.specs:
         return _section("3. Findings", ["Nothing was evaluated, so there are no findings."])
     body: list[str] = []
+    if session.specs:
+        body.extend(_spec_lines(session.specs))
     for rid in sorted(grouped):
         body.append(f"**{rid}**")
         body.extend(_finding_lines(grouped[rid]))

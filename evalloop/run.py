@@ -61,6 +61,7 @@ from pathlib import Path, PurePosixPath
 from evalloop._compat import StrEnum
 from evalloop.classify import Abstention, classify_file
 from evalloop.grade.execution import grade_execution
+from evalloop.grade.specs import SPEC_SUFFIX, SpecError, SpecResult, grade_spec_file
 from evalloop.capability.llm import Clearance
 from evalloop.capability.router import Router
 from evalloop.grade.oracles import Artifact, AuthoredOracle, OracleKind, author_test, harvest
@@ -110,6 +111,11 @@ class RunResult:
     permission_requests: tuple[str, ...]
     situations: tuple[tuple[Situation, float], ...]
     notes: tuple[str, ...]
+    specs: tuple[tuple[str, SpecResult], ...] = ()
+    cost_usd: Decimal = Decimal(0)
+    #: The Python-function path's outcome without the specs, for a caller (the session) that grades
+    #: the specs as cards of its own. ``None`` means no specs were folded in, so ``outcome`` is it.
+    code_outcome: RunOutcome | None = None
 
     @property
     def exit_code(self) -> int:
@@ -123,6 +129,8 @@ class _Accumulator:
     skipped: list[str] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    specs: list[tuple[str, SpecResult]] = field(default_factory=list)
+    cost_usd: Decimal = Decimal(0)
 
 
 # -- discovering what to evaluate ---------------------------------------------------
@@ -220,6 +228,7 @@ def _author_one(
     except Exception as exc:  # a provider outage must not take the whole run down
         acc.notes.append(f"{rel}::{func}: authoring failed — {type(exc).__name__}: {exc}")
         return None
+    acc.cost_usd += Decimal(outcome.total_cost_usd)  # a rejected attempt was still paid for
     if outcome.oracle is None:
         acc.notes.append(f"{rel}::{func}: {outcome.reason}")
         return None
@@ -275,20 +284,37 @@ def _grade_one(
 # -- the loop -----------------------------------------------------------------------
 
 
+def _grade_specs(root: Path, acc: _Accumulator) -> None:
+    """Grade every ``*.eval.json`` under ``root``; a spec that cannot run is a note, never a skip."""
+    for spec_path in sorted(root.rglob(f"*{SPEC_SUFFIX}")):
+        rel = spec_path.relative_to(root).as_posix()
+        if any(part.startswith(".") for part in PurePosixPath(rel).parts):
+            continue
+        try:
+            acc.specs.append((rel, grade_spec_file(spec_path)))
+        except SpecError as exc:
+            acc.notes.append(f"{rel}: spec not graded — {exc}")
+        except Exception as exc:  # a broken spec must not take the code path's verdicts down with it
+            acc.notes.append(f"{rel}: spec not graded — {type(exc).__name__}: {exc}")
+
+
 def _run_id(artifact_hashes: Sequence[str], seed: int) -> str:
     digest = content_hash(("|".join(sorted(artifact_hashes)) + f"|seed={seed}").encode("utf-8"))
     return f"run-{digest[:16]}"
 
 
-def _outcome(acc: _Accumulator) -> tuple[RunOutcome, list[str]]:
+def _outcome(acc: _Accumulator, *, with_specs: bool = True) -> tuple[RunOutcome, list[str]]:
     notes: list[str] = []
     conclusive = [c for c in acc.cases if c.verdict is not Verdict.inconclusive]
     failed = [c for c in acc.cases if c.verdict is Verdict.failed]
-    if failed:
+    spec_outcomes = {spec.outcome for _, spec in acc.specs} if with_specs else set()
+    if failed or "problem" in spec_outcomes:
         return RunOutcome.problem, notes
-    if conclusive:
+    if conclusive or "clean" in spec_outcomes:
         return RunOutcome.clean, notes
-    if acc.cases:
+    if acc.specs and with_specs:
+        notes.append("every spec check was inconclusive: the fixtures, not the code, could not decide")
+    elif acc.cases:
         notes.append("every result was inconclusive: the evaluation, not the code, could not decide")
     else:
         notes.append("nothing could be graded: no applicable technique had a runnable oracle")
@@ -305,6 +331,7 @@ def check(
     wall_seconds: float = 30.0,
     workdir_root: str | os.PathLike[str] | None = None,
     author: Author | None = None,
+    specs: bool = True,
 ) -> RunResult:
     """Run the whole M1 loop on ``path`` and write ``summary.md``. One shot; returns a :class:`RunResult`.
 
@@ -312,6 +339,7 @@ def check(
     the repo's ``.evalloop/`` and the user's home, so the caller passes it). ``no_llm`` is the
     default and the guarantee of zero egress. ``wall_seconds`` bounds each grading run (A1's
     ``timeout`` parameter once EL-015 lands; supplied here, never a literal in grader logic).
+    ``specs`` also grades every ``*.eval.json`` (SQL / RAG / agent) under ``path`` into the report.
     """
     root = Path(path)
     if not root.exists():
@@ -426,6 +454,9 @@ def check(
                 run_id=run_id, prior=prior, limits=limits, seed=seed, workdir_root=workdir_str, acc=acc,
             )
 
+    if specs and root.is_dir():
+        _grade_specs(root, acc)
+
     if already_run:
         existing = store.read_run(run_id)
         acc.cases.extend(existing.cases)
@@ -444,7 +475,8 @@ def check(
         situations=ordered_situations,
         plan=summary_plan,
         cases=tuple(acc.cases),
-        cost_usd=Decimal(0),
+        cost_usd=acc.cost_usd,
+        specs=tuple(acc.specs),
     )
     summary = render_summary(session)
     summary_path = Path(out_path) if out_path is not None else store_path / _SUMMARY_NAME
@@ -460,4 +492,7 @@ def check(
         permission_requests=tuple(acc.permissions),
         situations=ordered_situations,
         notes=tuple(acc.notes),
+        specs=tuple(acc.specs),
+        cost_usd=acc.cost_usd,
+        code_outcome=_outcome(acc, with_specs=False)[0] if acc.specs else None,
     )

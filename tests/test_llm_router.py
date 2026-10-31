@@ -406,9 +406,11 @@ def test_a_clearance_must_say_who_and_why(who: str, why: str) -> None:
 
 
 def test_nothing_in_evalloop_issues_a_clearance() -> None:
-    """Option (b) as a fact: no module constructs a Clearance, so no call can leave in M1."""
+    """Option (b), narrowed by EL-016: only the operator's ``start --author`` branch issues one."""
     issuers = sorted(str(path.relative_to(EVALLOOP)) for path in EVALLOOP.rglob("*.py") if "Clearance(" in path.read_text(encoding="utf-8"))
-    assert issuers == []
+    assert issuers == ["__main__.py"]
+    main = (EVALLOOP / "__main__.py").read_text(encoding="utf-8")
+    assert main.count("Clearance(") == 1 and main.index("if args.author:") < main.index("Clearance(")
 
 
 # -- the real HTTP transport, without a network ---------------------------------------------------
@@ -500,13 +502,16 @@ _ENVIRONMENT_READ = re.compile(r"\bos\.environ\b|\bgetenv\(|\benviron\[|\benviro
 
 
 def test_no_other_module_reads_the_environment() -> None:
-    """ARCHITECTURE.md section 9: credentials in a grader are impossible by construction."""
+    """ARCHITECTURE.md section 9: credentials in a grader are impossible by construction.
+
+    ``capability/grok.py`` is the second provider's credential and price reader (EL-016).
+    """
     readers = sorted(
         str(path.relative_to(EVALLOOP))
         for path in EVALLOOP.rglob("*.py")
         if _ENVIRONMENT_READ.search(path.read_text(encoding="utf-8"))
     )
-    assert readers == ["capability/llm.py"]
+    assert readers == ["capability/grok.py", "capability/llm.py"]
 
 
 def test_the_network_guard_is_live() -> None:

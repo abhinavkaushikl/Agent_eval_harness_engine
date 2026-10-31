@@ -52,8 +52,44 @@ def test_rag_spec_gates_recall_against_the_specs_threshold(tmp_path: Path) -> No
                 {"query_id": "q2", "gold_ids": ["p4"], "retrieved": ["p7", "p4"]},
                 {"query_id": "q3", "gold_ids": ["p2"], "retrieved": ["p9", "p8"]}]}
     (case,) = grade_spec_file(_write(tmp_path, "r.eval.json", spec)).cases
-    assert case.verdict == "failed"               # 2/3 gold recalled = 0.667 < 0.9
+    # 2/3 = 0.667 is below 0.9, but its Wilson interval [0.208, 0.939] contains 0.9: three gold
+    # passages cannot say which side recall is on (C:49), so the spec is measured, not failed.
+    assert case.verdict == "inconclusive" and "contains the bar" in case.detail
     assert "recall@2" in case.detail and "[" in case.detail  # carries its interval
+
+
+def _recall_spec(hits: int, misses: int, bar: float) -> dict[str, object]:
+    queries = [{"query_id": f"h{i}", "gold_ids": [f"g{i}"], "retrieved": [f"g{i}"]} for i in range(hits)]
+    queries += [{"query_id": f"m{i}", "gold_ids": [f"g{i}"], "retrieved": ["x"]} for i in range(misses)]
+    return {"kind": "rag", "k": 1, "embedding_model": "m", "min_recall": bar, "queries": queries}
+
+
+def test_rag_spec_fails_only_when_the_whole_interval_is_below_the_bar(tmp_path: Path) -> None:
+    (case,) = grade_spec_file(_write(tmp_path, "r.eval.json", _recall_spec(1, 19, 0.8))).cases
+    assert case.verdict == "failed" and "whole interval is below" in case.detail
+
+
+def test_rag_spec_passes_only_when_the_whole_interval_clears_the_bar(tmp_path: Path) -> None:
+    (case,) = grade_spec_file(_write(tmp_path, "r.eval.json", _recall_spec(40, 0, 0.8))).cases
+    assert case.verdict == "passed" and "whole interval clears" in case.detail
+
+
+def test_sql_pass_the_data_cannot_tell_from_a_boundary_slip_is_inconclusive(tmp_path: Path) -> None:
+    """A:36: with no row exactly on 100, `total>=100` and `total>100` return the same rows."""
+    query = {"name": "big", "reference": "SELECT id FROM o WHERE total>100", "generated": "SELECT id FROM o WHERE total>=100"}
+    (case,) = grade_spec_file(_write(tmp_path, "s.eval.json", {"kind": "sql", "sqlite_setup": _SETUP, "queries": [query]})).cases
+    assert case.verdict == "inconclusive" and "`>` swapped for `>=`" in case.detail and "A:36" in case.detail
+
+
+def test_sql_boundary_seeded_on_the_edge_is_caught_and_a_correct_query_passes(tmp_path: Path) -> None:
+    setup = _SETUP + " INSERT INTO o VALUES (4,100,'US');"
+    queries = [
+        {"name": "slip", "reference": "SELECT id FROM o WHERE total>100", "generated": "SELECT id FROM o WHERE total>=100"},
+        {"name": "right", "reference": "SELECT id FROM o WHERE total>100", "generated": "SELECT id FROM o WHERE 100<total"},
+        {"name": "literal", "reference": "SELECT id FROM o WHERE c<>'<'", "generated": "SELECT id FROM o WHERE c!='<'"},
+    ]
+    cases = grade_spec_file(_write(tmp_path, "s.eval.json", {"kind": "sql", "sqlite_setup": setup, "queries": queries})).cases
+    assert [c.verdict for c in cases] == ["failed", "passed", "passed"]
 
 
 def test_rag_spec_without_threshold_is_measured_not_gated(tmp_path: Path) -> None:

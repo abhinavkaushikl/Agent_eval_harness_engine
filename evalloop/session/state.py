@@ -166,7 +166,8 @@ class RunCard:
         )
         return cls(
             run_id=result.run_id,
-            outcome=result.outcome.value,
+            # the session grades the specs as cards of their own, so this card is the code path only
+            outcome=(result.code_outcome or result.outcome).value,
             trigger=trigger,
             situations=tuple(f"{s.value} ({conf:.2f})" for s, conf in result.situations),
             cases=cases,

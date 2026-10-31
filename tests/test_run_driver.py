@@ -163,3 +163,33 @@ def test_the_cli_returns_the_outcome_code(tmp_path: Path) -> None:
     assert code == 1  # a problem was found
     clean_repo = _repo(tmp_path / "ok", CORRECT)
     assert main(["check", str(clean_repo), "--store", str(tmp_path / "store2")]) == 0
+
+
+def test_one_test_file_that_cannot_import_two_artifacts_does_not_collide(tmp_path: Path) -> None:
+    """Regression: the synthetic ``::inconclusive`` case id named only the oracle, so a test file
+    harvested for two artifacts wrote the same case twice and the metric store refused the run."""
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (repo / "b.py").write_text("def g():\n    return 2\n", encoding="utf-8")
+    (repo / "tests" / "test_both.py").write_text(
+        "from a import f\nfrom b import g\n\ndef test_f():\n    assert f() == 1\n\ndef test_g():\n    assert g() == 2\n",
+        encoding="utf-8",
+    )
+    result = check(repo, store_dir=tmp_path / "store")  # used to raise MetricStoreError
+    assert len({c.case_id for c in result.cases}) == len(result.cases)
+
+
+def test_specs_are_graded_into_the_report_and_the_outcome(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, CORRECT)
+    (repo / "tickets.eval.json").write_text(
+        '{"kind": "agent", "sqlite_setup": "CREATE TABLE t(id INT, state TEXT); INSERT INTO t VALUES (1, \'open\');",'
+        ' "claim": {"done": true, "message": "closed them all"},'
+        ' "checks": [{"type": "no_rows", "name": "no open tickets", "sql": "SELECT id FROM t WHERE state=\'open\'"}]}',
+        encoding="utf-8",
+    )
+    result = check(repo, store_dir=tmp_path / "store")
+    assert result.outcome is RunOutcome.problem  # the spec failed, even though the code is clean
+    assert result.code_outcome is RunOutcome.clean  # what the session's code card shows
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "**Spec checks**" in summary and "failed: no open tickets" in summary

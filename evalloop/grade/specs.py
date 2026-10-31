@@ -23,6 +23,7 @@ never a silent skip.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,10 +146,55 @@ def _grade_sql_spec(data: dict[str, object], *, base: Path) -> SpecResult:
                 reference=str(item["reference"]) if item.get("reference") is not None else None,
                 question=str(item["question"]) if item.get("question") is not None else None,
             )
-            cases.append(SpecCase(str(item.get("name", f"query {i + 1}")), grade.verdict.value, grade.detail))
+            verdict, detail = grade.verdict.value, grade.detail
+            reference = item.get("reference")
+            if verdict == "passed" and reference is not None:
+                blind = _undistinguished_boundaries(str(reference), snapshot)
+                if blind:
+                    verdict = "inconclusive"
+                    detail = (
+                        f"{detail}, but the data cannot tell the boundary apart: the reference with "
+                        f"{', '.join(blind)} returns the same rows, so a wrong boundary would pass too. "
+                        "Seed a row exactly on the boundary (A:36: \"wrong queries pass by coincidence\")"
+                    )
+            cases.append(SpecCase(str(item.get("name", f"query {i + 1}")), verdict, detail))
     finally:
         snapshot.close()
     return SpecResult("sql", "sql_generation", tuple(cases))
+
+
+#: Comparison operators and the off-by-one neighbour a plausible wrong query uses instead (A:36's
+#: ``>`` vs ``>=``). ``<>`` is not-equal, not a boundary, so it is matched first and left alone.
+_BOUNDARY_SWAP = {">": ">=", ">=": ">", "<": "<=", "<=": "<"}
+_COMPARISON = re.compile(r"<>|>=|<=|>|<")
+_STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
+
+
+def _boundary_mutants(sql: str) -> list[tuple[str, str]]:
+    """Every single-operator boundary swap of ``sql`` outside string literals: ``(label, mutant)``."""
+    literals = [(m.start(), m.end()) for m in _STRING_LITERAL.finditer(sql)]
+    mutants: list[tuple[str, str]] = []
+    for match in _COMPARISON.finditer(sql):
+        op = match.group()
+        if op == "<>" or any(start <= match.start() < end for start, end in literals):
+            continue
+        swapped = _BOUNDARY_SWAP[op]
+        mutants.append((f"`{op}` swapped for `{swapped}`", sql[: match.start()] + swapped + sql[match.end() :]))
+    return mutants
+
+
+def _undistinguished_boundaries(reference: str, snapshot: Snapshot) -> list[str]:
+    """The boundary swaps of ``reference`` that the seeded data cannot tell from the reference itself.
+
+    A pass on execution match is only as strong as the rows seeded (A:36). If moving a boundary by
+    one (``>`` to ``>=``) returns the same result set, then a generated query with that very mistake
+    passes too, so the pass shows nothing about the boundary.
+    """
+    return [
+        label
+        for label, mutant in _boundary_mutants(reference)
+        if grade_sql(mutant, snapshot=snapshot, reference=reference).verdict.value == "passed"
+    ]
 
 
 # -- RAG -------------------------------------------------------------------------------
@@ -183,9 +229,19 @@ def _grade_rag_spec(data: dict[str, object]) -> SpecResult:
     if min_recall is None:
         verdict, detail = "inconclusive", f"{recall.describe()} — no 'min_recall' set, so measured not gated"
     else:
-        passed = recall.recall >= float(str(min_recall))
-        verdict = "passed" if passed else "failed"
-        detail = f"{recall.describe()} vs min_recall {min_recall}"
+        # Gate on the interval, not the point estimate: when the interval contains the bar, the data has
+        # not shown which side recall is on (C:49: overlapping intervals mean "no gap had been demonstrated").
+        bar = float(str(min_recall))
+        if recall.interval.lower >= bar:
+            verdict, detail = "passed", f"{recall.describe()} vs min_recall {min_recall}: the whole interval clears it"
+        elif recall.interval.upper < bar:
+            verdict, detail = "failed", f"{recall.describe()} vs min_recall {min_recall}: the whole interval is below it"
+        else:
+            verdict = "inconclusive"
+            detail = (
+                f"{recall.describe()} vs min_recall {min_recall}: the interval contains the bar, so these "
+                f"{recall.total_gold} gold passages cannot say which side recall is on; add labelled queries"
+            )
     return SpecResult("rag", "rag_answer", (SpecCase(f"recall@{k}", verdict, detail),))
 
 
