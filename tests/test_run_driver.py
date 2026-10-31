@@ -193,3 +193,24 @@ def test_specs_are_graded_into_the_report_and_the_outcome(tmp_path: Path) -> Non
     assert result.code_outcome is RunOutcome.clean  # what the session's code card shows
     summary = result.summary_path.read_text(encoding="utf-8")
     assert "**Spec checks**" in summary and "failed: no open tickets" in summary
+
+
+@pytest.mark.parametrize(("body", "outcome"), [("return a + b", RunOutcome.clean), ("return a - b", RunOutcome.problem)])
+def test_a_module_inside_a_package_is_graded_by_its_dotted_import(tmp_path: Path, body: str, outcome: RunOutcome) -> None:
+    """`from shop.pricing.calc import add` resolves in the sandbox, and a sibling module it imports comes too."""
+    repo = tmp_path / "repo"
+    (repo / "shop" / "pricing").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "shop" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "shop" / "pricing" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "shop" / "money.py").write_text("ZERO = 0\n", encoding="utf-8")
+    (repo / "shop" / "pricing" / "calc.py").write_text(
+        f"from shop.money import ZERO\n\ndef add(a, b):\n    {body}\n", encoding="utf-8"
+    )
+    (repo / "tests" / "test_calc.py").write_text(
+        "from shop.pricing.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n", encoding="utf-8"
+    )
+    result = check(repo, store_dir=tmp_path / "store")
+    graded = [c for c in result.cases if c.artifact_id == "shop/pricing/calc.py"]
+    assert graded and all(c.verdict.value != "inconclusive" for c in graded)
+    assert result.outcome is outcome
