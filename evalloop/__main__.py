@@ -60,6 +60,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="when a file has no test, WRITE one with the configured model (needs GROQ_API_KEY and prices; sends code off this machine)",
     )
     start.add_argument("--budget", default="1.00", help="spend cap in USD for authored tests this session")
+    start.add_argument(
+        "--calibrate-native",
+        action="store_true",
+        help="when a tick has failures, also run the repo's own pytest once OUTSIDE the sandbox; a failure "
+        "that passes there is shown inconclusive (environment), not as a problem",
+    )
 
     bot = sub.add_parser("bot", help="open the floating desktop bot, connected to a running `start` session")
     bot.add_argument("--host", default="127.0.0.1", help="host the session dashboard is served on")
@@ -132,7 +138,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write("  authoring: ON — a file with no test gets one written for it\n")
             except AuthoringUnavailable as exc:
                 sys.stdout.write(f"  authoring: OFF — {exc}\n")
-        session = Session(args.path, store_dir=args.store, author=author)
+        session = Session(args.path, store_dir=args.store, author=author, calibrate_native=args.calibrate_native)
         server = None if args.no_serve else session.serve(port=args.port)
         if server is not None:
             sys.stdout.write(f"EvalLoop watching {args.path}\n  dashboard: http://127.0.0.1:{args.port}/  (Ctrl-C to stop)\n")

@@ -201,3 +201,21 @@ def test_the_lean_is_anchored_at_the_shoes() -> None:
     foot_lean, hat_lean = xs_at(FIGURE_HEIGHT * 0.15)
     assert abs(foot_lean - foot_0) < 1.0, "the shoes must stay planted"
     assert hat_lean - hat_0 > 8.0, "the hat must travel with the lean"
+
+
+def test_the_session_passes_native_calibration_through_to_the_run(tmp_path: Path) -> None:
+    """`start --calibrate-native`: a failure only the sandbox causes is withheld on the bot's card too."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "scale.py").write_text("def scale(x, k):\n    return x * k\n", encoding="utf-8")
+    (tmp_path / "tests" / "factor.txt").write_text("3\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_scale.py").write_text(
+        "from pathlib import Path\nfrom scale import scale\n\n"
+        "def test_uses_data_beside_it():\n"
+        "    assert scale(2, int((Path(__file__).parent / 'factor.txt').read_text())) == 6\n",
+        encoding="utf-8",
+    )
+    plain = Session(tmp_path, store_dir=tmp_path / ".s1").tick()
+    calibrated = Session(tmp_path, store_dir=tmp_path / ".s2", calibrate_native=True).tick()
+    assert plain is not None and plain.outcome == "problem"
+    assert calibrated is not None and calibrated.outcome != "problem"
+    assert all(case.verdict != "failed" for case in calibrated.cases)

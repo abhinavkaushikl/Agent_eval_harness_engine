@@ -7,15 +7,19 @@ no poller, server or loop to test, only that the pieces join and the exit codes 
 
 from __future__ import annotations
 
+import json
 import socket
 import textwrap
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from evalloop.plan.planner import plan
 from evalloop.registry.loader import RECORDS_DIR, load_records
-from evalloop.run import RunOutcome, _permission_request, check
+from evalloop.capability.llm import Clearance, HTTPReply, LLMClient, RetryPolicy
+from evalloop.capability.router import CostLedger, Job, ModelConfig, Router
+from evalloop.run import Author, RunOutcome, _permission_request, check
 from evalloop.vocab import Situation, Tool
 
 RECORDS = tuple(load_records(RECORDS_DIR))
@@ -249,3 +253,81 @@ def test_native_calibration_never_excuses_a_real_bug(tmp_path: Path) -> None:
     result = check(repo, store_dir=tmp_path / "store", calibrate_native=True)
     (plain_case,) = [c for c in result.cases if c.case_id.endswith("test_plain")]
     assert plain_case.verdict.value == "failed" and result.outcome is RunOutcome.problem
+
+
+# -- a second, independent generated test corroborates a generated failure (A:211) ----------------
+
+
+class _ScriptedModel:
+    """An offline transport that replies with scripted test files in order."""
+
+    def __init__(self, *texts: str) -> None:
+        self._texts, self._i = list(texts), 0
+
+    @property
+    def leaves_machine(self) -> bool:
+        return False
+
+    def post(self, body: bytes, *, timeout: float) -> "HTTPReply":
+        text = self._texts[min(self._i, len(self._texts) - 1)]
+        self._i += 1
+        document = {
+            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+            "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "stop_details": None,
+            "usage": {"input_tokens": 50, "output_tokens": 30},
+        }
+        return HTTPReply(200, {"request-id": "req_1"}, json.dumps(document).encode())
+
+
+def _author(*texts: str) -> Author:
+    model = ModelConfig("claude-opus-5-5", "claude", "anthropic", Decimal("4"), Decimal("20"), False, "test catalog")
+    client = LLMClient(
+        _ScriptedModel(*texts),
+        RetryPolicy(max_attempts=1, base_delay=0.0, max_delay=0.0, request_timeout=5.0, total_timeout=10.0),
+        jitter_seed=1,
+    )
+    router = Router(routes={Job.author: model}, client=client, ledger=CostLedger(Decimal("1.00")))
+    return Author(router=router, clearance=Clearance(granted_by="tests", reason="scripted offline model"), max_attempts=1)
+
+
+_RIGHT_TEST = "from adder import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+_WRONG_TEST = "from adder import add\n\ndef test_add_is_float():\n    assert isinstance(add(1, 2), float)\n"
+
+
+def _adder_repo(tmp_path: Path, body: str) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "adder.py").write_text(f"def add(a: float, b: float) -> float:\n    {body}\n", encoding="utf-8")
+    return repo
+
+
+def test_a_generated_failure_an_independent_test_disagrees_with_is_withheld(tmp_path: Path) -> None:
+    result = check(_adder_repo(tmp_path, "return a + b"), store_dir=tmp_path / "s", author=_author(_WRONG_TEST, _RIGHT_TEST))
+    (case,) = result.cases
+    assert case.verdict.value == "inconclusive" and "independently" in (case.inconclusive_reason or "")
+    assert result.outcome is RunOutcome.undecided  # withheld, never promoted to a pass
+
+
+def test_a_real_bug_both_independent_tests_catch_stands(tmp_path: Path) -> None:
+    result = check(_adder_repo(tmp_path, "return a - b"), store_dir=tmp_path / "s", author=_author(_RIGHT_TEST, _RIGHT_TEST))
+    assert [c.verdict.value for c in result.cases] == ["failed"] and result.outcome is RunOutcome.problem
+
+
+def test_two_tests_wrong_the_same_way_still_count_as_a_failure(tmp_path: Path) -> None:
+    """The stated limit: agreement is corroboration, not proof. Two tests sharing a mistake still fail it."""
+    result = check(_adder_repo(tmp_path, "return a + b"), store_dir=tmp_path / "s", author=_author(_WRONG_TEST, _WRONG_TEST))
+    assert result.outcome is RunOutcome.problem
+
+
+def test_two_functions_whose_generated_tests_share_a_name_do_not_collide(tmp_path: Path) -> None:
+    """Regression: both authored tests are named `test_it`, so `adder.py::test_it` appeared twice."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "adder.py").write_text("def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n", encoding="utf-8")
+    tests = (
+        "from adder import add\n\ndef test_it():\n    assert add(1, 2) == 3\n",
+        "from adder import sub\n\ndef test_it():\n    assert sub(3, 2) == 1\n",
+    )
+    result = check(repo, store_dir=tmp_path / "s", author=_author(*tests))  # used to raise MetricStoreError
+    assert [c.verdict.value for c in result.cases] == ["passed", "passed"]
+    assert len({c.case_id for c in result.cases}) == 2

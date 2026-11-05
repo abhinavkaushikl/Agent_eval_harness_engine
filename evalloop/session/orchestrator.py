@@ -34,9 +34,9 @@ __all__ = ["Session"]
 Evaluator = Callable[[str, str], RunResult]
 
 
-def _default_evaluator(store_dir: str, author: "Author | None") -> Evaluator:
+def _default_evaluator(store_dir: str, author: "Author | None", calibrate_native: bool = False) -> Evaluator:
     def run(path: str, _store: str) -> RunResult:
-        return check(path, store_dir=store_dir, author=author)
+        return check(path, store_dir=store_dir, author=author, calibrate_native=calibrate_native)
 
     return run
 
@@ -51,11 +51,16 @@ class Session:
         store_dir: str | Path,
         evaluator: Evaluator | None = None,
         author: Author | None = None,
+        calibrate_native: bool = False,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.root = str(root)
         self._store = str(store_dir)
-        self._evaluator = evaluator if evaluator is not None else _default_evaluator(self._store, author)
+        # calibrate_native: a tick whose sandbox run has failures also runs the repo's own pytest once,
+        # unsandboxed, so a failure only the sandbox causes is withheld (evalloop.grade.native)
+        self._evaluator = (
+            evaluator if evaluator is not None else _default_evaluator(self._store, author, calibrate_native)
+        )
         self._clock = clock
         self.state = SessionState(root=self.root, updated_at=clock())
         self._seen: Snapshot = {}

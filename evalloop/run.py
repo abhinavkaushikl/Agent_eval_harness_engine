@@ -332,11 +332,73 @@ def _grade_one(
         workdir_root=workdir_root,
         package_files=package.files if package is not None else None,
     )
-    acc.cases.extend(report.cases)
+    # Two oracles for one artifact can share a test name (two functions' authored tests, or two test
+    # files), and the store keeps one case per id. On a clash the id names the oracle too, which is unique.
+    taken = {c.case_id for c in acc.cases}
+    for case in report.cases:
+        acc.cases.append(replace(case, case_id=f"{artifact_rel}::{case.oracle_id}") if case.case_id in taken else case)
     acc.graded.append(f"{artifact_rel} vs {oracle_id}")
 
 
 # -- the loop -----------------------------------------------------------------------
+
+
+def _second_opinion(
+    acc: _Accumulator,
+    first: int,
+    *,
+    artifact: Artifact,
+    root: Path,
+    rel: str,
+    func: str,
+    source: str,
+    import_name: str,
+    author: Author | None,
+    run_id: str,
+    limits: Limits,
+    seed: int,
+    workdir_root: str | None,
+) -> None:
+    """Corroborate a generated test's failure with a second, independently written test.
+
+    A generated test sees only the signature, so when it fails, either the code is wrong or the test
+    expected something the spec never said. The corpus's answer to one grader's unchecked verdict is
+    a second, independent one (A:211, "two qualified experts independently grade ... a third resolves
+    their disagreements"). So a fresh test is written from the same isolated view and run. If it fails
+    too, the failure stands. If it passes everything, the two tests disagree about the code, and
+    the first test's failures are withheld as inconclusive, never turned into passes. The second test
+    only adjudicates: its cases are not added, so the two tests' case ids never collide.
+    """
+    failed = [i for i in range(first, len(acc.cases)) if acc.cases[i].verdict is Verdict.failed and acc.cases[i].reused_from is None]
+    if not failed or author is None:
+        return
+    second = _author_one(
+        artifact=artifact, root=root, rel=rel, func=func, author=author, limits=limits,
+        workdir_root=workdir_root, acc=acc,
+    )
+    if second is None:
+        acc.notes.append(f"{rel}::{func}: no second test could be written, so the generated test's failure is uncorroborated")
+        return
+    scratch = _Accumulator()
+    _grade_one(
+        artifact_rel=rel, artifact_source=source, import_name=import_name, oracle_id=second.oracle_id,
+        oracle_source=second.test_code, oracle_hash=content_hash(second.test_code.encode("utf-8")),
+        run_id=run_id, prior=None, confidence=second.confidence, limits=limits, seed=seed,
+        workdir_root=workdir_root, acc=scratch,
+    )
+    passed = sum(1 for c in scratch.cases if c.verdict is Verdict.passed)
+    if any(c.verdict is Verdict.failed for c in scratch.cases) or passed == 0:
+        acc.notes.append(f"{rel}::{func}: a second, independent generated test also failed or could not decide; the failure stands")
+        return
+    reason = (
+        f"a generated test failed, but a second test written independently from the same signature passed "
+        f"all {passed} of its checks: the two disagree, so this may be the test's mistake, not the code's"
+    )
+    for i in failed:
+        acc.cases[i] = replace(
+            acc.cases[i], verdict=Verdict.inconclusive, failure_class=None, timeout=None, inconclusive_reason=reason
+        )
+    acc.notes.append(f"{rel}::{func}: {len(failed)} generated failure(s) withheld: an independent second test disagreed")
 
 
 def _calibrated(case: CaseResult, native: NativeRun) -> CaseResult:
@@ -505,6 +567,7 @@ def check(
                     author=author, limits=limits, workdir_root=workdir_str, acc=acc,
                 )
                 if authored is not None:
+                    first = len(acc.cases)
                     _grade_one(
                         artifact_rel=rel, artifact_source=source, import_name=import_name,
                         oracle_id=authored.oracle_id, oracle_source=authored.test_code,
@@ -512,6 +575,11 @@ def check(
                         run_id=run_id, prior=prior, confidence=authored.confidence,
                         limits=limits, seed=seed,
                         workdir_root=workdir_str, acc=acc,
+                    )
+                    _second_opinion(
+                        acc, first, artifact=Artifact(harvest_path, func), root=harvest_root, rel=rel,
+                        func=func, source=source, import_name=import_name, author=author, run_id=run_id,
+                        limits=limits, seed=seed, workdir_root=workdir_str,
                     )
                     continue
                 acc.notes.append(f"{rel}::{func}: {found.reason or 'no test oracle'}")
