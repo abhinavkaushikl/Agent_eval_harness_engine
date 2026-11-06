@@ -1,35 +1,36 @@
-"""The on-screen character: a tiny vector minifigure who leans, thinks out loud, and opens a panel.
+"""The on-screen character: a tiny vector dancer who thinks out loud, chats, and opens a panel.
 
 No window chrome anywhere — a frameless, transparent, always-on-top Tkinter window that draws:
 
-* **the figure**, built from smooth vector shapes (not pixels): white fedora with a black band,
-  black side locks, a printed face, a white suit over a blue shirt with a white tie, LEGO hands, and
-  white legs with black shoes. He is authored once in *figure space* (origin between the feet, y
-  up) and every pose is a **shear anchored at the shoes**, so the whole body tilts as one rigid
-  plank — the Smooth Criminal lean — continuously rather than in steps;
+* **the dancer** you picked (:mod:`evalloop.session.avatars`): Smooth the moonwalking minifigure,
+  Zuri, Mira or Luz, each in any of the dances, drawn from flat vector shapes on a skeleton. The
+  mood sets how hard they dance. ``c`` switches character and ``d`` switches dance (the page can
+  change both too);
 * **a thought cloud above his head** naming what he is testing right now, while he is active;
-* **a panel**, toggled by clicking him, that fades in beside him with the live eval report — drawn
+* **a chat**, opened by clicking him, that asks what to watch (:mod:`evalloop.session.chat_popup`);
+* **a panel**, toggled with ``r``, that fades in beside him with the live eval report — drawn
   natively in Tk, never a browser;
 * **the permission popup** (:mod:`evalloop.session.consent_popup`, EL-018) whenever the session is
   waiting to be allowed to open an endpoint, and the **Permissions view** on right-click or ``p``.
 
 Tkinter must run on the main thread and needs a display, so the poll runs in a daemon thread and
-hands the main thread plain data. The geometry (:func:`pose`, the figure's points) is pure and
-testable without ever opening a window.
+hands the main thread plain data. The geometry (the avatar engine) is pure and testable without
+ever opening a window.
 """
 
 from __future__ import annotations
 
 import json
-import math
 import threading
+import time
 import tkinter as tk  # importing is display-free; only tk.Tk() needs a display (guarded in run_overlay)
 import urllib.request
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from typing import Literal
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Literal
 
-__all__ = ["MOOD", "PALETTE", "Pose", "pose", "FIGURE_HEIGHT", "run_overlay", "signal_line"]
+from evalloop.session.avatars import FIGURE_HEIGHT, PALETTE, Animator, Pose, catalog, cycle, pet_of, pose, pose_prims
+
+__all__ = ["MOOD", "PALETTE", "Pose", "pose", "FIGURE_HEIGHT", "draw_prims", "run_overlay", "signal_line"]
 
 
 MOOD = {
@@ -46,82 +47,9 @@ _ACCENT = {
     "alarmed": "#ff453a", "unsure": "#ff9f0a", "errored": "#ff453a",
 }
 
-PALETTE = {
-    "suit": "#f6f6f3",   # white fedora, jacket, trousers
-    "hair": "#121216",   # black hair, hat band, shoes
-    "skin": "#eab988",   # face and hands
-    "shirt": "#1f8fe0",  # blue shirt
-    "tie": "#ffffff",    # white tie
-    "ink": "#1b1d23",    # printed outlines
-}
-
 _FONT = "Helvetica Neue"
 
-#: The figure is authored in these units, feet at y=0, top of the hat at y=FIGURE_HEIGHT.
-FIGURE_HEIGHT = 100.0
-
 Point = tuple[float, float]
-
-
-@dataclass(frozen=True, slots=True)
-class Pose:
-    """One instant of the dance. Secondary-motion fields default to 0 so simpler callers stay valid."""
-
-    lean: float          # figure units the TOP of the body travels; the shoes never move
-    bob: float           # vertical lift
-    arm: float           # 0 = glove hand down, 1 = raised
-    hat_lag: float = 0.0  # extra lean on the hat+head only — follow-through, it trails the body
-    swing: float = 0.0    # the free (hanging) arm's counter-swing
-    squash: float = 0.0   # 0..1 vertical squash-and-stretch on the landing beat
-    glide: float = 0.0    # horizontal moonwalk slide, in figure units; the whole figure (feet too) slides
-    step: float = 0.0     # -1..1 leg beat: >0 lifts the left knee, <0 the right — the alternating step
-
-
-def pose(state: str, t: float) -> Pose:
-    """The pose for ``state`` at time ``t`` seconds. He MOONWALKS — a fast sideways glide with the
-    signature forward lean — in every mood, hardest while evaluating and gentlest while idle, so he
-    is always dancing. Continuous and eased. Pure."""
-    # The moonwalk glide: a fast, smooth sideways slide the whole figure rides, phase-shifted a hair
-    # behind the lean so the body tips the way it came from — the backslide illusion.
-    def glide(amp: float, speed: float) -> float:
-        return amp * math.sin(speed * t - 0.5)
-
-    if state == "evaluating":
-        w = 8.4  # the dance — fast, deep lean with follow-through, big backslide, pumping legs
-        lean = 12.0 * math.sin(w * t)
-        return Pose(
-            lean=lean,
-            bob=2.2 * abs(math.sin(w * t)),
-            arm=0.55 + 0.45 * math.sin(2 * w * t),            # the glove pumps twice per lean
-            hat_lag=4.2 * math.sin(w * (t - 0.09)) - lean * 0.35,  # trails the body
-            swing=-0.6 * lean,                                 # free arm counter-swings
-            squash=0.08 * abs(math.sin(2 * w * t)),
-            glide=15.0 * math.sin(0.5 * w * t - 0.5),          # slides right across as he dances
-            step=math.sin(w * t),                              # legs pump in time with the lean
-        )
-    if state == "happy":
-        hop = max(0.0, math.sin(4.0 * t))                      # little hops while sliding
-        return Pose(lean=1.6 * math.sin(4.0 * t), bob=4.5 * hop,
-                    arm=0.5 + 0.5 * math.sin(8.0 * t),         # both hands pump
-                    swing=3.0 * math.sin(4.0 * t), squash=0.12 * hop,
-                    glide=glide(12.0, 4.0), step=math.sin(4.0 * t))
-    if state in ("alarmed", "errored"):                        # an agitated, fast shuffle with quick feet
-        return Pose(lean=-1.8 + 1.2 * math.sin(6.0 * t), bob=0.6 * abs(math.sin(6.0 * t)),
-                    arm=0.3 + 0.3 * math.sin(12.0 * t), swing=2.0 * math.sin(6.0 * t),
-                    hat_lag=0.7 * math.sin(6.0 * t), glide=glide(11.0, 6.0), step=math.sin(6.0 * t))
-    if state == "unsure":                                      # a slower, questioning slide with a sway
-        return Pose(lean=1.0 * math.sin(3.0 * t), bob=0.0,
-                    arm=0.25 + 0.2 * math.sin(3.0 * t), swing=2.2 * math.sin(3.0 * t),
-                    hat_lag=2.6 * math.sin(1.1 * t), glide=glide(10.0, 3.0), step=0.7 * math.sin(3.0 * t))
-    # idle: a steady, gentle moonwalk — small lean (he never looks still), sliding feet, swinging arms
-    return Pose(lean=2.4 * math.sin(3.2 * t), bob=0.4 * abs(math.sin(3.2 * t)),
-                arm=0.2 + 0.2 * math.sin(3.2 * t), swing=2.0 * math.sin(3.2 * t),
-                hat_lag=0.6 * math.sin(3.2 * t - 0.3), squash=0.03 + 0.02 * math.sin(1.3 * t),
-                glide=glide(9.0, 3.2), step=0.8 * math.sin(3.2 * t))
-
-
-def _ellipse_pts(cx: float, cy: float, rx: float, ry: float, n: int = 22) -> list[Point]:
-    return [(cx + rx * math.cos(2 * math.pi * i / n), cy + ry * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
 
 def _rrect_pts(x0: float, y0: float, x1: float, y1: float, r: float) -> list[Point]:
@@ -130,99 +58,21 @@ def _rrect_pts(x0: float, y0: float, x1: float, y1: float, r: float) -> list[Poi
             (x1 - r, y1), (x0 + r, y1), (x0, y1), (x0, y1 - r), (x0, y0 + r), (x0, y0)]
 
 
-def draw_figure(canvas: tk.Canvas, ox: float, oy: float, s: float, p: Pose, accent: str) -> None:
-    """Draw the minifigure, feet centred at (``ox``, ``oy``), scaled by ``s``, posed by ``p``.
-
-    Only the figure is drawn — no backdrop, no ring. Form comes from a soft second tone on his left
-    (shaded) side; life comes from the pose's lean, squash and follow-through.
-    """
-    suit, hair, skin = PALETTE["suit"], PALETTE["hair"], PALETTE["skin"]
-    shirt, tie, ink = PALETTE["shirt"], PALETTE["tie"], PALETTE["ink"]
-    shade = "#dedede"   # a soft shadow tone for his left side — subtle dimension, not a hard line
-
-    def at(x: float, y: float, extra: float = 0.0) -> Point:
-        """Figure space -> canvas: squash the height, shear the lean (+``extra``), slide the glide."""
-        ys = y * (1.0 - p.squash)
-        xs = x * (1.0 + 0.4 * p.squash)
-        dx = (p.lean + extra) * (ys / FIGURE_HEIGHT)
-        return (ox + (xs + dx + p.glide) * s, oy - (ys + p.bob) * s)
-
-    def poly(pts: Sequence[Point], fill: str, outline: str = "", width: float = 1.0,
-             smooth: bool = False, extra: float = 0.0) -> None:
+def draw_prims(canvas: tk.Canvas, prims: Sequence[Mapping[str, Any]], ox: float, oy: float, s: float) -> None:
+    """Draw avatar prims (figure space, y up; :func:`~evalloop.session.avatars.pose_prims`) with the
+    feet at (``ox``, ``oy``), scaled by ``s``."""
+    for prim in prims:
+        pts = prim["p"]
         flat: list[float] = []
-        for x, y in pts:
-            cx, cy = at(x, y, extra)
-            flat += [cx, cy]
-        canvas.create_polygon(flat, fill=fill, outline=outline, width=width, smooth=smooth)
-
-    def limb(a: Point, b: Point, w: float, fill: str) -> None:
-        ax, ay = at(*a)
-        bx, by = at(*b)
-        canvas.create_line(ax, ay, bx, by, fill=ink, width=(w + 1.3) * s, capstyle="round")
-        canvas.create_line(ax, ay, bx, by, fill=fill, width=w * s, capstyle="round")
-
-    # --- legs: white trousers (left leg shaded), black shoes + ankle band ---
-    # Each leg lifts (knee bends, foot rises) on its beat, with a small sideways kick — the dance step.
-    _LIFT = 7.0
-    for sx in (-1, 1):
-        inner, outer = sx * 1.4, sx * 12.8
-        x0, x1 = min(inner, outer), max(inner, outer)
-        lift = max(0.0, (p.step if sx < 0 else -p.step)) * _LIFT
-        kick = lift * 0.35 * sx
-        x0 += kick
-        x1 += kick
-        poly([(x0, 5 + lift), (x1, 5 + lift), (x1, 36), (x0, 36)], fill=shade if sx < 0 else suit, outline=ink, width=0.8)
-        poly([(x0, 0 + lift), (x1, 0 + lift), (x1, 5 + lift), (x0, 5 + lift)], fill=hair, outline=ink, width=0.8)  # shoe
-        poly([(x0, 8 + lift), (x1, 8 + lift), (x1, 11 + lift), (x0, 11 + lift)], fill=hair)                        # ankle band
-
-    # --- the free (right) arm, hanging, with its counter-swing ---
-    limb((-13.0, 63.0), (-18.5 + p.swing, 43.0), 5.0, suit)
-    poly(_ellipse_pts(-18.5 + p.swing, 41.0, 2.7, 2.7, 14), fill=skin, outline=ink, width=0.7, smooth=True)
-
-    # --- torso: white jacket (left side shaded), blue shirt V, white tie, belt ---
-    poly([(-14.0, 36), (14.0, 36), (16.0, 64), (-16.0, 64)], fill=suit, outline=ink, width=0.9)
-    poly([(-16.0, 64), (-14.0, 36), (0, 36), (0, 64)], fill=shade)                            # left-side shadow
-    poly([(-6.8, 64), (6.8, 64), (0, 44)], fill=shirt)                                        # shirt V
-    poly([(-2.1, 63), (2.1, 63), (1.3, 45), (-1.3, 45)], fill=tie, outline=ink, width=0.6)    # tie
-    for sx in (-1, 1):                                                                         # lapel lines
-        a0, a1 = at(sx * 6.8, 64), at(sx * 1.8, 45)
-        canvas.create_line(*a0, *a1, fill=ink, width=0.8 * s)
-    b0, b1 = at(-14.4, 39.5), at(14.4, 39.5)
-    canvas.create_line(*b0, *b1, fill=ink, width=0.9 * s)                                      # belt
-
-    # --- the glove arm, raising with the dance ---
-    rx = 17.5 + 2.0 * (1 - p.arm)
-    ry = 43.0 + (77.0 - 43.0) * p.arm
-    limb((13.0, 63.0), (rx, ry), 5.0, suit)
-    poly(_ellipse_pts(rx, ry - 1.5, 2.9, 2.9, 14), fill="#ffffff", outline=ink, width=0.7, smooth=True)
-
-    # --- head (follows the lean with a slight lag) ---
-    hat_extra = p.hat_lag
-    poly([(-3.4, 63), (3.4, 63), (3.4, 67), (-3.4, 67)], fill=skin, outline=ink, width=0.6, extra=hat_extra)
-    poly(_rrect_pts(-8.6, 66.5, 8.6, 85.0, 3.2), fill=skin, outline=ink, width=0.8, smooth=True, extra=hat_extra)
-    poly(_rrect_pts(-8.6, 66.5, -1.0, 85.0, 3.2), fill="#e3c6a2", smooth=True, extra=hat_extra)  # cheek shade
-    for sx in (-1, 1):                                                                         # eyes + brows
-        poly(_ellipse_pts(sx * 3.3, 77.5, 1.05, 1.3, 12), fill=ink, smooth=True, extra=hat_extra)
-        e0, e1 = at(sx * 5.0, 80.4, hat_extra), at(sx * 1.9, 81.1, hat_extra)
-        canvas.create_line(*e0, *e1, fill=ink, width=1.0 * s)
-    m0, m1 = at(-2.3, 72.6, hat_extra), at(2.3, 72.6, hat_extra)
-    canvas.create_line(*m0, *m1, fill=ink, width=0.9 * s)                                      # mouth
-
-    # --- hair: fringe + a lock down each side ---
-    poly([(-8.7, 82.0), (8.7, 82.0), (8.7, 85.2), (-8.7, 85.2)], fill=hair, extra=hat_extra)
-    poly([(-8.5, 84.5), (-11.4, 81.0), (-12.0, 73.0), (-9.6, 68.5), (-7.8, 71.0), (-8.5, 77.0)],
-         fill=hair, smooth=True, extra=hat_extra)
-    poly([(8.5, 84.5), (11.4, 81.0), (12.0, 74.0), (10.0, 70.0), (8.0, 72.5), (8.5, 78.0)],
-         fill=hair, smooth=True, extra=hat_extra)
-
-    # --- fedora: wide brim, black band, pinched crown ---
-    poly(_ellipse_pts(0, 85.4, 21.0, 3.6, 26), fill=suit, outline=ink, width=0.8, smooth=True, extra=hat_extra)
-    poly(_ellipse_pts(0, 85.6, 21.0, 2.0, 26), fill=shade, smooth=True, extra=hat_extra)       # brim underside
-    poly([(-11.0, 85.6), (11.0, 85.6), (11.0, 89.0), (-11.0, 89.0)], fill=hair, extra=hat_extra)  # band
-    poly([(-11.0, 88.8), (-9.6, 95.2), (-5.4, 97.4), (-1.9, 95.8), (2.0, 97.6), (5.8, 97.4),
-          (9.8, 95.0), (11.0, 88.8)], fill=suit, outline=ink, width=0.8, smooth=True, extra=hat_extra)
-    poly([(-11.0, 88.8), (-9.6, 95.2), (-5.4, 97.4), (-2.0, 96.2), (-2.0, 88.8)],
-         fill=shade, smooth=True, extra=hat_extra)                                             # crown shadow side
+        for i in range(0, len(pts), 2):
+            flat += [ox + pts[i] * s, oy - pts[i + 1] * s]
+        if prim["k"] == "poly":
+            outline = prim["o"] or ""
+            canvas.create_polygon(flat, fill=prim["f"] or "", outline=outline,
+                                  width=max(0.6, prim["w"] * s) if outline else 0)
+        else:
+            canvas.create_line(*flat, fill=prim["c"], width=max(0.5, prim["w"] * s),
+                               capstyle="round" if prim["r"] else "butt")
 
 
 class _Poller:
@@ -374,7 +224,19 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
     panel = _Panel(poller, transparent=transparent)
     from evalloop.session.consent_popup import BotClient, ConsentUI  # Tk too; same main loop, never blocks
 
-    consent = ConsentUI(root, BotClient(host, port))
+    client = BotClient(host, port)
+    consent = ConsentUI(root, client)
+    from evalloop.session.chat_popup import ChatWindow
+
+    chat: dict[str, ChatWindow | None] = {"win": None}
+
+    def toggle_chat() -> None:
+        open_chat = chat["win"]
+        if open_chat is not None and not open_chat.closed:
+            open_chat.close()
+            return
+        chat["win"] = ChatWindow(root, client, data=lambda: poller.data, on_permissions=consent.open_permissions,
+                                 near=(root.winfo_x(), root.winfo_y()))
     drag = {"x": 0, "y": 0, "moved": False}
 
     def press(e: "tk.Event[tk.Misc]") -> None:
@@ -388,7 +250,7 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
 
     def release(_e: "tk.Event[tk.Misc]") -> None:
         if not drag["moved"]:
-            panel.toggle(root)               # a click (not a drag) toggles the on-screen panel
+            toggle_chat()                    # a click (not a drag) opens the chat: "what should I watch?"
 
     def shutdown() -> None:
         poller.stop()
@@ -402,8 +264,20 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
         canvas.bind(button, lambda _e: consent.open_permissions())
     root.bind("<Escape>", lambda _e: shutdown())
     root.bind("p", lambda _e: consent.open_permissions())
+    root.bind("r", lambda _e: panel.toggle(root))
+
+    def switch(what: str) -> None:
+        """c / d: the next character or dance for the pet, saved by the session so the page follows."""
+        choice = cycle(poller.data.get("avatar"), what)
+        threading.Thread(target=lambda: _quietly(lambda: client.set_avatar(choice)), daemon=True).start()
+        poller.data = {**poller.data, "avatar": choice}  # show it now; the next poll confirms
+
+    root.bind("c", lambda _e: switch("character"))
+    root.bind("d", lambda _e: switch("dance"))
 
     frame = {"n": 0}
+    animator = Animator()
+    clock = {"last": time.monotonic()}
 
     def draw_cloud(state: str, accent: str) -> None:
         """A thought cloud above his head, always on: what he is testing now, or last tested + result."""
@@ -420,10 +294,13 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
     def draw() -> None:
         state = poller.state
         accent = _ACCENT.get(state, "#5e5ce6")
-        t = frame["n"] / 30.0                      # 30 fps, so the motion is smooth
+        now = time.monotonic()
+        dt, clock["last"] = now - clock["last"], now
+        character, dance, skin, outfit = pet_of(poller.data.get("avatar"))
+        channels = animator.advance(dt, catalog()["dances"][dance], state)
         canvas.delete("all")
         draw_cloud(state, accent)
-        draw_figure(canvas, ox, oy, scale, pose(state, t), accent)
+        draw_prims(canvas, pose_prims(character, channels, skin=skin, outfit=outfit), ox, oy, scale)
         if frame["n"] % 15 == 0:                   # twice a second: a permission waiting? show it
             consent.update(poller.data)
         frame["n"] += 1
@@ -432,6 +309,13 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
 
     draw()
     root.mainloop()
+
+
+def _quietly(call: Callable[[], object]) -> None:
+    try:
+        call()
+    except Exception:  # the session may be gone; the pet keeps dancing
+        pass
 
 
 class _Panel:
@@ -580,4 +464,4 @@ class _Panel:
             text(W / 2, y + 20, "Nothing evaluated yet", "#7d828e", 11, anchor="center")
             text(W / 2, y + 40, "edit a file — he'll get to work", "#5b5e68", 10, anchor="center")
 
-        text(W / 2, H - 22, "click: close  ·  right-click: permissions  ·  drag", "#4e525c", 9, anchor="center")
+        text(W / 2, H - 22, "r: close  ·  click: chat  ·  p: permissions  ·  drag", "#4e525c", 9, anchor="center")

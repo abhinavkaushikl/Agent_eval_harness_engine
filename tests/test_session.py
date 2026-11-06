@@ -175,30 +175,18 @@ def test_bot_pose_is_a_continuous_dance_without_a_window() -> None:
 
 
 def test_the_lean_is_anchored_at_the_shoes() -> None:
-    """The signature lean: the top of the body travels, the feet do not."""
-    from evalloop.session.overlay import FIGURE_HEIGHT, Pose, draw_figure
-
-    moved: list[tuple[float, float]] = []
-
-    class _FakeCanvas:
-        def create_polygon(self, flat: list[float], **_k: object) -> None:
-            moved.extend(zip(flat[0::2], flat[1::2]))
-
-        def create_line(self, *a: float, **_k: object) -> None:
-            moved.extend([(a[0], a[1]), (a[2], a[3])])
-
-        def create_oval(self, *a: float, **_k: object) -> None:
-            return None
+    """The signature lean, now drawn by the avatar engine: the top of the body travels, the feet do not."""
+    from evalloop.session.avatars import REST, pose_prims
 
     def xs_at(lean: float) -> tuple[float, float]:
-        moved.clear()
-        draw_figure(_FakeCanvas(), 100.0, 200.0, 1.0, Pose(lean=lean, bob=0.0, arm=0.0), "#fff")  # type: ignore[arg-type]
-        bottom = [x for x, y in moved if y > 198.0]          # at/near the shoes
-        top = [x for x, y in moved if y < 200.0 - 90.0]      # up at the hat
+        channels = {**REST, "hip_x": 0.36 * lean, "pelvis": -lean * 0.57, "knee_out": 0.25}
+        points = [(p["p"][i], p["p"][i + 1]) for p in pose_prims("smooth", channels) for i in range(0, len(p["p"]), 2)]
+        bottom = [x for x, y in points if y < 2.0]      # at the shoes
+        top = [x for x, y in points if y > 90.0]        # up at the hat
         return (sum(bottom) / len(bottom), sum(top) / len(top))
 
     foot_0, hat_0 = xs_at(0.0)
-    foot_lean, hat_lean = xs_at(FIGURE_HEIGHT * 0.15)
+    foot_lean, hat_lean = xs_at(15.0)
     assert abs(foot_lean - foot_0) < 1.0, "the shoes must stay planted"
     assert hat_lean - hat_0 > 8.0, "the hat must travel with the lean"
 

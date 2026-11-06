@@ -118,6 +118,9 @@ class RunCard:
     permission_requests: tuple[str, ...]
     at: float
     error: str = ""
+    #: Why things were not graded ("app.py::load_data: no test oracle", reused verdicts…), so a
+    #: run that checked nothing can say why instead of a bare "undecided".
+    notes: tuple[str, ...] = ()
 
     @classmethod
     def errored(cls, exc: BaseException, *, trigger: tuple[str, ...], at: float) -> RunCard:
@@ -172,6 +175,7 @@ class RunCard:
             situations=tuple(f"{s.value} ({conf:.2f})" for s, conf in result.situations),
             cases=cases,
             permission_requests=tuple(result.permission_requests),
+            notes=tuple(result.notes) + tuple(result.skipped),
             at=at,
         )
 
@@ -197,6 +201,7 @@ class RunCard:
             "permission_requests": list(self.permission_requests),
             "at": self.at,
             "error": self.error,
+            "notes": list(self.notes),
         }
 
 

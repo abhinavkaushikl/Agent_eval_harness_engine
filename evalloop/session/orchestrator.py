@@ -13,6 +13,23 @@ permission popup and published in ``status.json`` under ``consent``. The bot ans
 an ``X-EvalLoop-Bot`` header, which a web page cannot send to this port without a CORS preflight
 the server never answers, so a browser tab cannot approve anything. Each tick also re-reads the
 consent store, so ``evalloop consents revoke`` takes effect on a running session.
+
+What it watches can change while it runs: the bot's chat asks for a folder and POSTs it to
+``/watch`` (``/pause`` stops watching). :meth:`Session.watch` only records the request; the next
+tick switches to it, with fresh run history, a fresh change baseline, and that folder's own saved
+approvals. Ticks run one after another on the session's loop, so a check already in flight
+finishes on the old folder first and the switch happens after it; nothing from the old folder
+reaches the new one's history. A session may start with no folder at all and wait to be told.
+
+The avatar choice (which character is the desktop pet, who dances on the page, each one's dance and
+look; :mod:`evalloop.session.avatars`) lives here too, so the page and the pets always agree:
+``GET /avatars.json`` serves the characters and dances, ``status.json`` carries the current choice,
+and ``POST /avatar`` changes it (saved to ``avatar_path`` when one is given).
+
+Packages: when a run's tests lack third-party packages, the session queues an install request in the
+same permission popup (:mod:`evalloop.session.install_gate`). Allowing it builds EvalLoop's
+environment for the project and re-runs the checks at once, with nothing changed on disk; ``install``
+(``evalloop start --install``) allows it for every project without asking.
 """
 
 from __future__ import annotations
@@ -30,9 +47,12 @@ from evalloop.classify.heuristics import classify_source
 from evalloop.grade.agent_scaffold import SCAFFOLD_SUFFIX, scaffold_agent_eval
 from evalloop.grade.dbcheck import check_file, find_sqlite
 from evalloop.grade.specs import SPEC_SUFFIX, grade_spec_file
+from evalloop.memory.case import Verdict
 from evalloop.run import Author, RunResult, check
+from evalloop.session import avatars
 from evalloop.session.consent import Choice, ConsentGate, Resolution, discovered_requests, sqlite_request
 from evalloop.session.dashboard import dashboard_html
+from evalloop.session.install_gate import InstallGate
 from evalloop.session.poller import Snapshot, changed_files, snapshot
 from evalloop.session.state import CaseCard, MascotState, RunCard, SessionState, worst_outcome
 from evalloop.session.state import _OUTCOME_TO_MASCOT
@@ -40,13 +60,21 @@ from evalloop.vocab import Situation
 
 __all__ = ["Session"]
 
+
+def _gate_for(root: str) -> ConsentGate:
+    """The consent gate for a folder: its own saved approvals, or none yet when no folder is set."""
+    return ConsentGate(CapabilityBroker(store=store_for(root) if root else None))
+
 # The engine the session drives. Injectable so a test can run the loop without real grading.
 Evaluator = Callable[[str, str], RunResult]
 
 
-def _default_evaluator(store_dir: str, author: "Author | None", calibrate_native: bool = False) -> Evaluator:
+def _default_evaluator(
+    store_dir: str, author: "Author | None", calibrate_native: bool = False,
+    install: Callable[[str], bool] = lambda _root: False,
+) -> Evaluator:
     def run(path: str, _store: str) -> RunResult:
-        return check(path, store_dir=store_dir, author=author, calibrate_native=calibrate_native)
+        return check(path, store_dir=store_dir, author=author, calibrate_native=calibrate_native, install=install(path))
 
     return run
 
@@ -56,7 +84,7 @@ class Session:
 
     def __init__(
         self,
-        root: str | Path,
+        root: str | Path | None,
         *,
         store_dir: str | Path,
         evaluator: Evaluator | None = None,
@@ -65,33 +93,104 @@ class Session:
         clock: Callable[[], float] = time.time,
         consent: ConsentGate | None = None,
         caps: Caps | None = None,
+        avatar_path: str | Path | None = None,
+        install: bool = False,
     ) -> None:
-        self.root = str(root)
+        self.root = str(root) if root else ""
         # Saved approvals load from <root>/.evalloop/consents.json; caps are what each request asks
         # for (EL-006: never defaulted, so unset unless the operator passes them).
-        self.consent = consent if consent is not None else ConsentGate(CapabilityBroker(store=store_for(root)))
+        self.consent = consent if consent is not None else _gate_for(self.root)
         self._caps = caps if caps is not None else Caps()
         self._store = str(store_dir)
+        # who may have packages installed for them: everyone (--install), or asked per project
+        self.installs = InstallGate(always=install)
+        self._rerun = False
         # calibrate_native: a tick whose sandbox run has failures also runs the repo's own pytest once,
         # unsandboxed, so a failure only the sandbox causes is withheld (evalloop.grade.native)
         self._evaluator = (
-            evaluator if evaluator is not None else _default_evaluator(self._store, author, calibrate_native)
+            evaluator if evaluator is not None
+            else _default_evaluator(self._store, author, calibrate_native, install=self.installs.allowed)
         )
         self._clock = clock
         self.state = SessionState(root=self.root, updated_at=clock())
         self._seen: Snapshot = {}
+        # Whether this folder has had its first look. Not "the snapshot is empty": a folder with no
+        # .py or eval-spec files always snapshots empty, and treating every tick as a first look
+        # re-ran the whole check every interval.
+        self._looked = False
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._next_root: str | None = None  # set by watch(), applied at the start of the next tick
+        self._paused = False
+        self._avatar_path = avatar_path
+        self.avatar = avatars.load_choice(avatar_path)
+
+    def set_avatar(self, choice: object) -> dict[str, object]:
+        """Change the avatar choice (normalised; unknown ids fall back to defaults) and save it."""
+        with self._lock:
+            self.avatar = avatars.save_choice(self._avatar_path, choice if isinstance(choice, dict) else {})
+            return self.avatar
+
+    # -- what to watch --------------------------------------------------------------------
+
+    def watch(self, path: str | Path) -> str:
+        """Start (or switch to) watching ``path`` from the next tick. Returns it resolved.
+
+        Raises ``ValueError`` with a plain reason when it is not an existing folder.
+        """
+        if not str(path).strip():
+            raise ValueError("tell me which folder to watch")
+        target = Path(path).expanduser()
+        if not target.exists():
+            raise ValueError(f"there is no folder at {target}")
+        if not target.is_dir():
+            raise ValueError(f"{target} is a file; give me the folder that holds it")
+        resolved = str(target.resolve())
+        with self._lock:
+            self._next_root = resolved
+            self._paused = False
+            self.state.watching = True
+        return resolved
+
+    def pause(self) -> None:
+        """Stop watching (the loop keeps running, idle) until :meth:`watch` is called again."""
+        with self._lock:
+            self._paused = True
+            self.state.watching = False
+
+    def _switch(self, root: str) -> None:
+        """Called with the lock held: start over on ``root``."""
+        self.root = root
+        self.consent = _gate_for(root)
+        self.state = SessionState(root=root, updated_at=self._clock())
+        self._seen = {}
+        self._looked = False
 
     def tick(self) -> RunCard | None:
         """One pass: evaluate iff the tree changed since the last tick. Returns the last card, or None."""
+        with self._lock:
+            if self._next_root is not None:
+                self._switch(self._next_root)
+                self._next_root = None
+            if self._paused or not self.root:
+                return None
         current = snapshot(self.root)
         trigger = changed_files(self._seen, current)
-        first_run = not self._seen
+        first_run = not self._looked
+        self._looked = True
         self._seen = current
         with self._lock:
             self.consent.broker.sync()  # pick up approvals revoked or added outside this session
             recheck, self.consent.changed = self.consent.changed, False
+            rerun, self._rerun = self._rerun, False
+        if not trigger and not first_run and rerun:
+            # an install was just allowed: run the checks again, though nothing changed on disk
+            with self._lock:
+                self.state.current = ("installing packages and re-running the checks",)
+                self.state.mascot = MascotState.evaluating
+            rerun_card = self._run_python(())
+            self._record(rerun_card)
+            return self._conclude([rerun_card])
         if not trigger and not first_run:
             # nothing changed on disk, but a permission just granted unblocks the waiting DB check
             if not recheck:
@@ -144,11 +243,7 @@ class Session:
 
         # the Python-function path still grades the whole repo as before
         if py_trigger or first_run:
-            try:
-                result = self._evaluator(self.root, self._store)
-                card = RunCard.from_result(result, trigger=py_trigger, at=self._clock())
-            except Exception as exc:  # a bad run must never kill the watcher — record it and keep going
-                card = RunCard.errored(exc, trigger=py_trigger, at=self._clock())
+            card = self._run_python(py_trigger)
             # Don't let an empty "nothing in the function path" card (the usual result for an agent file,
             # which has no execution grader) sit ABOVE a real verdict from a spec/DB check in the same
             # tick — it reads as UNDECIDED on top and hides the actual PASS/FAIL. Keep it only when it
@@ -156,6 +251,19 @@ class Session:
             if card.cases or card.outcome in ("problem", "errored") or not produced:
                 emit(card)
         return self._conclude(produced)
+
+    def _run_python(self, py_trigger: tuple[str, ...]) -> RunCard:
+        """Grade the Python-function path once; ask to install whatever packages its tests lacked."""
+        try:
+            result = self._evaluator(self.root, self._store)
+        except Exception as exc:  # a bad run must never kill the watcher — record it and keep going
+            return RunCard.errored(exc, trigger=py_trigger, at=self._clock())
+        # Only offer an install that would change something: a test that could not run. A project
+        # with no tests lacks packages too, but installing them would still grade nothing.
+        blocked = any(c.verdict is Verdict.inconclusive for c in result.cases)
+        with self._lock:
+            self.installs.note_missing(self.root, result.missing_packages if blocked else ())
+        return RunCard.from_result(result, trigger=py_trigger, at=self._clock())
 
     def _conclude(self, produced: list[RunCard]) -> RunCard | None:
         """Pick the tick's headline: the single most severe card, and set the mascot to match.
@@ -196,13 +304,20 @@ class Session:
         return cards
 
     def decide(self, key: str, choice: Choice, typed: str = "") -> Resolution:
-        """Apply the bot's answer to one pending permission request."""
+        """Apply the bot's answer to one pending permission request (an endpoint, or an install)."""
         with self._lock:
+            if InstallGate.is_key(key):
+                result = self.installs.resolve(key, choice)
+                if result.granted:
+                    self._rerun = True  # the next tick installs and re-runs the checks
+                return result
             return self.consent.resolve(key, choice, typed)
 
     def revoke(self, key: str) -> bool:
         """Withdraw an approval from the Permissions view (also forgets it in the store)."""
         with self._lock:
+            if InstallGate.is_key(key):
+                return self.installs.forget(key)
             return self.consent.revoke(key)
 
     def _dbcheck(self, rel: str, db: "Path") -> RunCard | None:
@@ -312,7 +427,12 @@ class Session:
     def snapshot_json(self) -> bytes:
         with self._lock:
             payload = self.state.to_json()
-            payload["consent"] = self.consent.to_json()
+            consent = self.consent.to_json()
+            consent["pending"] = [*consent["pending"], *(r.to_json() for r in self.installs.pending())]  # type: ignore[misc]
+            consent["approvals"] = [*consent["approvals"], *self.installs.approvals(self.root)]  # type: ignore[misc]
+            payload["consent"] = consent
+            payload["switching_to"] = self._next_root
+            payload["avatar"] = self.avatar
             return json.dumps(payload).encode("utf-8")
 
     def run_forever(self, *, interval: float = 2.0) -> None:
@@ -329,6 +449,7 @@ class Session:
         """Start an HTTP server (in a daemon thread) that serves the dashboard and live state."""
         session = self
         page = dashboard_html().encode("utf-8")
+        catalog = json.dumps(avatars.catalog(), separators=(",", ":")).encode("utf-8")
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_: object) -> None:  # silence the default stderr logging
@@ -339,6 +460,8 @@ class Session:
                     body, ctype = page, "text/html; charset=utf-8"
                 elif self.path.startswith("/status.json"):
                     body, ctype = session.snapshot_json(), "application/json"
+                elif self.path.startswith("/avatars.json"):
+                    body, ctype = catalog, "application/json"
                 else:
                     self.send_error(404)
                     return
@@ -355,10 +478,31 @@ class Session:
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     data = json.loads(self.rfile.read(min(length, 65536)).decode("utf-8") or "{}")
-                    key = str(data["key"])
-                except (ValueError, KeyError, TypeError):
+                    if not isinstance(data, dict):
+                        raise TypeError("not an object")
+                except (ValueError, TypeError):
+                    self.send_error(400, "expected a JSON object")
+                    return
+                reply: dict[str, object]
+                if self.path == "/watch":
+                    try:
+                        reply = {"ok": True, "root": session.watch(str(data.get("path", "")))}
+                    except ValueError as error:
+                        reply = {"ok": False, "message": str(error)}
+                    self._reply(200, json.dumps(reply).encode("utf-8"), "application/json")
+                    return
+                if self.path == "/avatar":
+                    reply = {"ok": True, "avatar": session.set_avatar(data.get("avatar"))}
+                    self._reply(200, json.dumps(reply).encode("utf-8"), "application/json")
+                    return
+                if self.path == "/pause":
+                    session.pause()
+                    self._reply(200, b'{"ok": true}', "application/json")
+                    return
+                if "key" not in data:
                     self.send_error(400, "expected a JSON object with a 'key'")
                     return
+                key = str(data["key"])
                 if self.path == "/consent/decide":
                     try:
                         choice = Choice(str(data.get("choice", "")))
@@ -366,7 +510,7 @@ class Session:
                         self.send_error(400, "choice must be allow_once, allow_remember or deny")
                         return
                     result = session.decide(key, choice, str(data.get("typed", "")))
-                    reply: dict[str, object] = {
+                    reply = {
                         "accepted": result.accepted, "granted": result.granted,
                         "remembered": result.remembered, "message": result.message,
                     }

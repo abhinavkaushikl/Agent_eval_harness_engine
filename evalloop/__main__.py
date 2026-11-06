@@ -38,6 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "there is reported inconclusive (environment), not as a problem",
     )
     run.add_argument("--native-seconds", type=float, default=300.0, help="wall-clock cap for the native run")
+    run.add_argument(
+        "--install",
+        action="store_true",
+        help="when the tests need packages that aren't installed, build an EvalLoop environment for the project "
+        "(~/.evalloop/envs) and install them from PyPI; your project and your Python are not changed",
+    )
 
     conn = sub.add_parser("connect", help="discover the databases and vector stores a repo talks to")
     conn.add_argument("path", help="the repository to scan (nothing is opened)")
@@ -47,8 +53,9 @@ def _build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--endpoint", default=None, help="endpoint name for the grant and audit (default: sqlite:///<name>)")
 
     start = sub.add_parser("start", help="watch a repo and evaluate on every change, with a live dashboard")
-    start.add_argument("path", help="the repository to watch")
-    start.add_argument("--store", required=True, help="directory for the metric store")
+    start.add_argument("path", nargs="?", default=None,
+                       help="the repository to watch (omit it with --bot, and tell the bot in its chat)")
+    start.add_argument("--store", default=None, help="directory for the metric store (default: ~/.evalloop/store)")
     start.add_argument("--interval", type=float, default=2.0, help="seconds between change checks")
     start.add_argument("--port", type=int, default=7420, help="port for the live dashboard")
     start.add_argument("--no-serve", action="store_true", help="do not start the dashboard server")
@@ -65,6 +72,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="when a tick has failures, also run the repo's own pytest once OUTSIDE the sandbox; a failure "
         "that passes there is shown inconclusive (environment), not as a problem",
+    )
+    start.add_argument(
+        "--install",
+        action="store_true",
+        help="install the packages a project's tests need without asking (into ~/.evalloop/envs; downloads from PyPI)",
     )
     start.add_argument("--max-rows", type=int, default=None, help="row cap each permission request asks for (default: none set)")
     start.add_argument("--max-seconds", type=float, default=None, help="time cap each permission request asks for (default: none set)")
@@ -152,6 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             wall_seconds=args.wall_seconds,
             calibrate_native=args.calibrate_native,
             native_seconds=args.native_seconds,
+            install=args.install,
         )
         _print_result(result, sys.stdout)
         return result.exit_code
@@ -192,15 +205,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write("  authoring: ON — a file with no test gets one written for it\n")
             except AuthoringUnavailable as exc:
                 sys.stdout.write(f"  authoring: OFF — {exc}\n")
+        from pathlib import Path
+
         from evalloop.capability.broker import Caps
 
+        if args.path is None and not args.bot:
+            sys.stderr.write("evalloop start: give a folder to watch, or pass --bot and tell the bot in its chat\n")
+            return 2
+        store = args.store if args.store is not None else str(Path.home() / ".evalloop" / "store")
         session = Session(
-            args.path, store_dir=args.store, author=author, calibrate_native=args.calibrate_native,
+            args.path, store_dir=store, author=author, calibrate_native=args.calibrate_native,
             caps=Caps(max_rows=args.max_rows, max_seconds=args.max_seconds),
+            avatar_path=str(Path.home() / ".evalloop" / "avatar.json"),
+            install=args.install,
         )
         server = None if args.no_serve else session.serve(port=args.port)
         if server is not None:
-            sys.stdout.write(f"EvalLoop watching {args.path}\n  dashboard: http://127.0.0.1:{args.port}/  (Ctrl-C to stop)\n")
+            what = args.path if args.path else "nothing yet (click the bot and tell it a folder)"
+            sys.stdout.write(f"EvalLoop watching {what}\n  dashboard: http://127.0.0.1:{args.port}/  (Ctrl-C to stop)\n")
         if args.once:
             from evalloop.session.state import exit_code_for
 
@@ -221,7 +243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 from evalloop.session.overlay_qt import run_overlay_qt
 
-                sys.stdout.write("  bot: transparent desktop pet opened — click him, drag to move, Esc to close\n")
+                sys.stdout.write("  bot: transparent desktop pet opened — click him to chat, R: report, P: permissions, drag to move, Esc to close\n")
                 run_overlay_qt(port=args.port, poll=max(1.0, args.interval))
             except ImportError:
                 from evalloop.session.overlay import run_overlay

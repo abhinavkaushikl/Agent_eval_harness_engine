@@ -46,15 +46,26 @@ M1 scope and limits
 The driver evaluates **top-level functions**. A flat module is placed under its file stem and graded
 against a harvested test that imports it by that stem (Gate 1's shape). A module inside a package
 (every directory up to the top one has an ``__init__.py``) is placed with its whole top-level package
-and imported by its dotted path, so ``from pkg.mod import f`` resolves. Imports of anything outside
-that package (sibling top-level packages, test-suite fixtures, repo data) are not reconstructed: a
-test that needs them comes back inconclusive with pytest's reason, never a silent skip. Methods, SQL and API artifacts, and authored oracles are out of M1's grading scope.
+and imported by its dotted path, so ``from pkg.mod import f`` resolves.
+
+Multi-file code: the artifact, its package and its test(s) are read for ``import`` statements, and
+every **local** module they name is placed beside it, transitively: a sibling ``helpers.py`` that
+``pricing.py`` imports, another top-level package (``from util.money import tax``), a namespace
+package, or a data-free helper module a test imports. Names are looked up next to the artifact
+first, then at the repository root, the way running from the project would find them; anything
+not in the repository (the standard library, installed packages) is left to the interpreter.
+Test-side files (``tests/``, ``test_*.py``, ``*_test.py``, ``conftest.py``) are never placed beside the
+artifact, so code under test still cannot read its tests. The closure is capped (``_CONTEXT_MAX_FILES``,
+``_CONTEXT_MAX_BYTES``, engineering limits); past the cap, or for imports this does not reconstruct
+(test-suite fixtures, repo data files), a test that cannot import comes back inconclusive with
+pytest's reason, never a silent skip. Methods, SQL and API artifacts, and authored oracles are out of M1's grading scope.
 """
 
 from __future__ import annotations
 
 import ast
 import os
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -63,6 +74,7 @@ from pathlib import Path, PurePosixPath
 from evalloop._compat import StrEnum
 from evalloop.classify import Abstention, classify_file
 from evalloop.grade.execution import grade_execution
+from evalloop.grade import project_env
 from evalloop.grade.native import NativeRun, run_native
 from evalloop.grade.specs import SPEC_SUFFIX, SpecError, SpecResult, grade_spec_file
 from evalloop.capability.llm import Clearance
@@ -119,6 +131,9 @@ class RunResult:
     #: The Python-function path's outcome without the specs, for a caller (the session) that grades
     #: the specs as cards of its own. ``None`` means no specs were folded in, so ``outcome`` is it.
     code_outcome: RunOutcome | None = None
+    #: Third-party modules the code imports that the test interpreter does not have (so tests that
+    #: need them cannot import). The session offers to install them (:mod:`evalloop.grade.project_env`).
+    missing_packages: tuple[str, ...] = ()
 
     @property
     def exit_code(self) -> int:
@@ -283,13 +298,114 @@ def _package_context(root: Path, file: Path, source: str) -> _Package | None:
     return _Package(".".join(parts), files)
 
 
-def _oracle_hash(oracle_source: str, package: _Package | None) -> str:
-    """The oracle's hash, widened to the package it runs against: editing a sibling module must
-    re-grade, not reuse, a verdict that imported it (EL-201's content-hash skip)."""
-    if package is None:
+_CONTEXT_MAX_FILES = 400
+_CONTEXT_MAX_BYTES = 4_000_000
+_UNPLACED_DIRS = frozenset({"__pycache__", "node_modules", "site-packages", "dist-packages", "tests", "test"})
+
+
+def _is_test_side(rel: PurePosixPath) -> bool:
+    """A test-suite file, which must never sit beside the code under test (hidden-test isolation)."""
+    name = rel.name
+    return (
+        any(part in ("tests", "test") for part in rel.parts[:-1])
+        or name == "conftest.py"
+        or (name.startswith("test_") and name.endswith(".py"))
+        or name.endswith("_test.py")
+    )
+
+
+def _local_imports(text: str) -> set[str]:
+    """The top-level names a module imports absolutely (``import a.b`` and ``from a.b import c`` give ``a``)."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def _local_module(name: str, search: Sequence[Path]) -> dict[str, str] | None:
+    """The repository files that make up the importable ``name`` (a module or a package), or None."""
+    if name in _UNPLACED_DIRS or not name.isidentifier():
+        return None
+    for directory in search:
+        module = directory / f"{name}.py"
+        if module.is_file() and not module.is_symlink() and not _is_test_side(PurePosixPath(module.name)):
+            try:
+                return {f"{name}.py": module.read_text(encoding="utf-8")}
+            except (OSError, UnicodeDecodeError):
+                return None
+        package = directory / name
+        if package.is_dir() and not package.is_symlink() and not (package / "pyvenv.cfg").exists():
+            files: dict[str, str] = {}
+            for path in sorted(package.rglob("*")):
+                rel = PurePosixPath(name, *path.relative_to(package).parts)
+                if (not path.is_file() or path.is_symlink() or _is_test_side(rel)
+                        or any(part in _UNPLACED_DIRS or part.startswith(".") for part in rel.parts)):
+                    continue
+                try:
+                    files[rel.as_posix()] = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+            if any(rel.endswith(".py") for rel in files):
+                return files
+    return None
+
+
+def _sandbox_context(root: Path, file: Path, source: str, oracle_sources: Sequence[str]) -> _Package | None:
+    """Everything the artifact needs beside it in the sandbox: its package (if any) plus the local
+    modules that it, its package and its tests import, transitively. None for a flat module that
+    imports nothing local (the artifact alone is placed, as before)."""
+    package = _package_context(root, file, source)
+    if package is not None:
+        parts = package.import_name.split(".")
+        base = file.parents[len(parts) - (0 if file.name == "__init__.py" else 1)]
+        files, import_name = dict(package.files), package.import_name
+    else:
+        base = file.parent
+        files, import_name = {f"{file.stem}.py": source}, file.stem
+    search = [base] if base == root else [base, root]
+    seen = {import_name.split(".")[0]}
+    queue = [source, *oracle_sources, *files.values()]
+    total = sum(len(text) for text in files.values())
+    added = False
+    while queue:
+        for name in sorted(_local_imports(queue.pop()) - seen):
+            seen.add(name)
+            found = _local_module(name, search)
+            if found is None:
+                continue
+            for rel, text in found.items():
+                if rel in files or len(files) >= _CONTEXT_MAX_FILES or total + len(text) > _CONTEXT_MAX_BYTES:
+                    continue
+                files[rel] = text
+                total += len(text)
+                added = True
+                if rel.endswith(".py"):
+                    queue.append(text)
+    if not added:
+        return package
+    return _Package(import_name, files)
+
+
+def _oracle_hash(oracle_source: str, package: _Package | None, env_tag: str = "") -> str:
+    """The oracle's hash, widened to the package it runs against and the interpreter it runs with:
+    editing a sibling module, or installing what the tests lacked, must re-grade, not reuse, a
+    verdict (EL-201's content-hash skip). ``env_tag`` is empty for EvalLoop's own, complete Python,
+    so those hashes are exactly what they were before interpreters were chosen."""
+    if package is None and not env_tag:
         return content_hash(oracle_source.encode("utf-8"))
-    digest = "\n".join(f"{rel}:{content_hash(text.encode('utf-8'))}" for rel, text in sorted(package.files.items()))
-    return content_hash(f"{oracle_source}\n{digest}".encode("utf-8"))
+    parts = [oracle_source]
+    if package is not None:
+        parts.append("\n".join(f"{rel}:{content_hash(text.encode('utf-8'))}" for rel, text in sorted(package.files.items())))
+    if env_tag:
+        parts.append(f"env:{env_tag}")
+    return content_hash("\n".join(parts).encode("utf-8"))
 
 
 def _grade_one(
@@ -308,6 +424,7 @@ def _grade_one(
     workdir_root: str | None,
     acc: _Accumulator,
     package: _Package | None = None,
+    python: str | None = None,
 ) -> None:
     artifact_hash = content_hash(artifact_source.encode("utf-8"))
     # Content-hash skip (EL-201): an unchanged artifact + oracle already judged conclusively is reused.
@@ -331,6 +448,7 @@ def _grade_one(
         seed=seed,
         workdir_root=workdir_root,
         package_files=package.files if package is not None else None,
+        python=python,
     )
     # Two oracles for one artifact can share a test name (two functions' authored tests, or two test
     # files), and the store keeps one case per id. On a clash the id names the oracle too, which is unique.
@@ -358,6 +476,9 @@ def _second_opinion(
     limits: Limits,
     seed: int,
     workdir_root: str | None,
+    package: _Package | None = None,
+    python: str | None = None,
+    env_tag: str = "",
 ) -> None:
     """Corroborate a generated test's failure with a second, independently written test.
 
@@ -381,10 +502,11 @@ def _second_opinion(
         return
     scratch = _Accumulator()
     _grade_one(
-        artifact_rel=rel, artifact_source=source, import_name=import_name, oracle_id=second.oracle_id,
-        oracle_source=second.test_code, oracle_hash=content_hash(second.test_code.encode("utf-8")),
+        artifact_rel=rel, artifact_source=source,
+        import_name=package.import_name if package is not None else import_name, oracle_id=second.oracle_id,
+        oracle_source=second.test_code, oracle_hash=_oracle_hash(second.test_code, package, env_tag),
         run_id=run_id, prior=None, confidence=second.confidence, limits=limits, seed=seed,
-        workdir_root=workdir_root, acc=scratch,
+        workdir_root=workdir_root, acc=scratch, package=package, python=python,
     )
     passed = sum(1 for c in scratch.cases if c.verdict is Verdict.passed)
     if any(c.verdict is Verdict.failed for c in scratch.cases) or passed == 0:
@@ -467,6 +589,7 @@ def check(
     specs: bool = True,
     calibrate_native: bool = False,
     native_seconds: float = 300.0,
+    install: bool = False,
 ) -> RunResult:
     """Run the whole M1 loop on ``path`` and write ``summary.md``. One shot; returns a :class:`RunResult`.
 
@@ -477,6 +600,9 @@ def check(
     ``specs`` also grades every ``*.eval.json`` (SQL / RAG / agent) under ``path`` into the report.
     ``calibrate_native`` runs the repo's own pytest once, unsandboxed, and withholds the verdict on any
     sandbox failure that passes there (:mod:`evalloop.grade.native`); ``native_seconds`` bounds it.
+    Tests run with the project's own environment when it has one, else with an environment EvalLoop
+    builds for it when ``install`` allows (operator clearance: it downloads from PyPI), else with
+    EvalLoop's own Python (:mod:`evalloop.grade.project_env`).
     """
     root = Path(path)
     if not root.exists():
@@ -508,7 +634,23 @@ def check(
             continue
         rel = file.name if root.is_file() else file.relative_to(root).as_posix()
         sources.append((file, rel, source))
-    run_id = _run_id([content_hash(src.encode("utf-8")) for _, _, src in sources], seed)
+    # The interpreter the tests run with: the project's own environment, the one EvalLoop builds for
+    # it (when allowed), or EvalLoop's own. Its identity joins the run id and the oracle hashes only
+    # when it is not EvalLoop's complete own Python, so installing what was missing re-grades.
+    project = root if root.is_dir() else root.parent
+    interp = (project_env.choose(project, allow_install=install)
+              if any(rel.endswith(".py") for _, rel, _ in sources) else None)
+    python = interp.python if interp is not None else None
+    env_tag = "" if interp is None or (interp.python == sys.executable and not interp.missing) else (
+        f"{interp.python}|missing={','.join(interp.missing)}")
+    if interp is not None and interp.python != sys.executable:
+        acc.notes.append(f"tests run with {interp.origin}: {interp.python}")
+    if interp is not None and interp.failed:
+        acc.notes.append(f"could not install: {', '.join(interp.failed)}")
+    if interp is not None and interp.missing:
+        acc.notes.append(f"needs packages: {', '.join(interp.missing)}")
+    hashes = [content_hash(src.encode("utf-8")) for _, _, src in sources]
+    run_id = _run_id(hashes + ([content_hash(env_tag.encode("utf-8"))] if env_tag else []), seed)
     # The run id is the repository's content plus the seed, so an unchanged repository produces the
     # same id. If that id is already stored, nothing changed: reuse every verdict and grade nothing
     # (AGENT.md §3.9's content-hash skip, at the whole-repo level). Classification and planning still
@@ -568,36 +710,43 @@ def check(
                 )
                 if authored is not None:
                     first = len(acc.cases)
+                    context = _sandbox_context(root, file, source, [authored.test_code]) if root.is_dir() else None
                     _grade_one(
-                        artifact_rel=rel, artifact_source=source, import_name=import_name,
+                        artifact_rel=rel, artifact_source=source,
+                        import_name=context.import_name if context is not None else import_name,
                         oracle_id=authored.oracle_id, oracle_source=authored.test_code,
-                        oracle_hash=content_hash(authored.test_code.encode("utf-8")),
+                        oracle_hash=_oracle_hash(authored.test_code, context, env_tag),
                         run_id=run_id, prior=prior, confidence=authored.confidence,
                         limits=limits, seed=seed,
-                        workdir_root=workdir_str, acc=acc,
+                        workdir_root=workdir_str, acc=acc, package=context, python=python,
                     )
                     _second_opinion(
                         acc, first, artifact=Artifact(harvest_path, func), root=harvest_root, rel=rel,
                         func=func, source=source, import_name=import_name, author=author, run_id=run_id,
-                        limits=limits, seed=seed, workdir_root=workdir_str,
+                        limits=limits, seed=seed, workdir_root=workdir_str, package=context,
+                        python=python, env_tag=env_tag,
                     )
                     continue
                 acc.notes.append(f"{rel}::{func}: {found.reason or 'no test oracle'}")
                 continue
             for oracle in tests:
                 oracle_files.setdefault(oracle.provenance.path, harvest_root / oracle.provenance.path)
-        package = _package_context(root, file, source) if root.is_dir() and oracle_files else None
+        oracle_texts: dict[str, str] = {}
         for test_rel, oracle_abs in sorted(oracle_files.items()):
             try:
-                oracle_source = oracle_abs.read_text(encoding="utf-8")
+                oracle_texts[test_rel] = oracle_abs.read_text(encoding="utf-8")
             except OSError:
                 continue
+        package = (
+            _sandbox_context(root, file, source, list(oracle_texts.values())) if root.is_dir() and oracle_texts else None
+        )
+        for test_rel, oracle_source in oracle_texts.items():
             _grade_one(
                 artifact_rel=rel, artifact_source=source,
                 import_name=package.import_name if package is not None else import_name,
-                oracle_id=test_rel, oracle_source=oracle_source, oracle_hash=_oracle_hash(oracle_source, package),
+                oracle_id=test_rel, oracle_source=oracle_source, oracle_hash=_oracle_hash(oracle_source, package, env_tag),
                 run_id=run_id, prior=prior, limits=limits, seed=seed, workdir_root=workdir_str, acc=acc,
-                package=package,
+                package=package, python=python,
             )
 
     if specs and root.is_dir():
@@ -611,7 +760,7 @@ def check(
         )
     elif acc.cases:
         if calibrate_native and root.is_dir() and any(c.verdict is Verdict.failed for c in acc.cases):
-            native = run_native(root, timeout_seconds=native_seconds)
+            native = run_native(root, timeout_seconds=native_seconds, python=python)
             acc.notes.append(native.note)
             acc.cases[:] = [_calibrated(c, native) for c in acc.cases]
         store.write_run(run_id, acc.cases)
@@ -645,4 +794,5 @@ def check(
         specs=tuple(acc.specs),
         cost_usd=acc.cost_usd,
         code_outcome=_outcome(acc, with_specs=False)[0] if acc.specs else None,
+        missing_packages=interp.missing if interp is not None else (),
     )

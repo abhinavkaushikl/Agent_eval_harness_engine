@@ -326,6 +326,7 @@ def _run_oracle(
     seed: int,
     workdir_root: str | None,
     package_files: Mapping[str, str] | None = None,
+    python: str | None = None,
 ) -> tuple[list[dict[str, str]], SandboxResult]:
     """Run the oracle against the artifact in the sandbox. Returns the parsed case lines and the result.
 
@@ -338,6 +339,9 @@ def _run_oracle(
     A packaged artifact (``from pkg.mod import f``) brings ``package_files`` instead: its package's
     files at their package-relative paths, the artifact among them, so the dotted import resolves
     from ``subject/``. The oracle still sits outside it.
+
+    ``python`` is the interpreter to run pytest with: the project's own environment, or the one
+    EvalLoop built for it (:mod:`evalloop.grade.project_env`); ``None`` is EvalLoop's own.
     """
     if package_files is not None:
         files = {f"{_SUBJECT_DIR}/{rel}": text for rel, text in package_files.items()}
@@ -348,7 +352,7 @@ def _run_oracle(
     # --import-mode=importlib stops pytest from putting the oracle's directory on sys.path, so the
     # artifact cannot ``import`` the oracle module; the artifact is importable only via PYTHONPATH.
     command = [
-        sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
+        python or sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
         "--import-mode=importlib", "-q", f"../{_ORACLE_FILE}",
     ]
     result = run_sandboxed(
@@ -379,6 +383,7 @@ def grade_execution(
     confidence: float = 0.95,
     workdir_root: str | None = None,
     package_files: Mapping[str, str] | None = None,
+    python: str | None = None,
 ) -> GradeReport:
     """Grade ``artifact_source`` against the harvested ``oracle_source`` by running it (never reading it).
 
@@ -406,7 +411,7 @@ def grade_execution(
         return GradeReport(artifact_id, oracle_id, (case,), confidence)
 
     entries, result = _run_oracle(
-        artifact_source, import_name, oracle_source, sandbox_limits, seed, workdir_root, package_files
+        artifact_source, import_name, oracle_source, sandbox_limits, seed, workdir_root, package_files, python
     )
     sandbox_outcome = result.classify()
     per_case_duration = result.duration_seconds / max(len(entries), 1)

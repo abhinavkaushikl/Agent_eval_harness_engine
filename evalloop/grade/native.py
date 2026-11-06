@@ -53,11 +53,11 @@ def junit_key(test_id: str) -> tuple[str, str] | None:
     return ".".join([module, *parts[1:-1]]), parts[-1]
 
 
-def run_native(root: Path, *, timeout_seconds: float) -> NativeRun:
-    """Run ``pytest`` in ``root`` with this interpreter and read every test's outcome. Never raises."""
+def run_native(root: Path, *, timeout_seconds: float, python: str | None = None) -> NativeRun:
+    """Run ``pytest`` in ``root`` (with ``python``, else this interpreter) and read every test's outcome. Never raises."""
     with tempfile.TemporaryDirectory(prefix="evalloop-native-") as scratch:
         report = Path(scratch) / "junit.xml"
-        command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}"]
+        command = [python or sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}"]
         try:
             subprocess.run(command, cwd=root, capture_output=True, timeout=timeout_seconds, check=False)
         except subprocess.TimeoutExpired:

@@ -2,38 +2,39 @@
 
 Tkinter cannot composite per-pixel window transparency on macOS, so the floating character is built
 on Qt, which can: a frameless, always-on-top, translucent ``QWidget`` with **nothing** behind the
-figure — just him. Qt also gives antialiased vector drawing and a real ``QTransform`` shear, so the
-Smooth-Criminal lean is exact (the body tilts as one plank, feet planted) and the motion is smooth
-at 60fps.
+figure, just the dancer. Qt gives antialiased vector drawing, so the dancer (from the shared avatar
+engine, :mod:`evalloop.session.avatars`) is smooth at 60fps. ``C`` switches character, ``D`` dance.
 
 This is the one place EvalLoop uses a non-stdlib dependency, and only for the optional pet UI — the
 eval engine stays pure standard library. The dance, the poll and the figure's measurements are
-reused from :mod:`evalloop.session.overlay`; only the *rendering* is Qt here.
+reused from :mod:`evalloop.session.overlay` and :mod:`evalloop.session.avatars`; only the
+*rendering* is Qt here.
 
-He stands when idle and dances only while evaluating (the desktop-pet model). Click him for the live
+He stands when idle and dances only while evaluating (the desktop-pet model). Click him to chat (tell
+him what to watch); press R for the live
 report panel; drag to move; Esc to dismiss.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 import webbrowser
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from evalloop.session.avatars import FIGURE_HEIGHT, Animator, catalog, cycle, pet_of, pose_prims
 from evalloop.session.overlay import (
-    FIGURE_HEIGHT,
     MOOD,
-    PALETTE,
-    Pose,
     _Poller,
     _runs,
     _str_list,
     _testing_now,
-    pose,
     signal_line,
 )
 
@@ -49,131 +50,28 @@ def _c(hex_color: str) -> QtGui.QColor:
     return QtGui.QColor(hex_color)
 
 
-def _body_transform(ox: float, oy: float, s: float, p: Pose, extra_lean: float) -> QtGui.QTransform:
-    """Figure space (feet at origin, y up) -> screen, with the lean sheared in as one rigid plank."""
-    t = QtGui.QTransform()
-    t.translate(ox + p.glide * s, oy)                 # glide: the moonwalk sideways slide (feet too)
-    t.scale(s, -s)                                    # figure units -> px, y points up
-    t.translate(0.0, p.bob)                           # bob lifts the whole body
-    t.shear((p.lean + extra_lean) / FIGURE_HEIGHT, 0.0)   # lean: x += (lean/H)*y  — feet (y=0) fixed
-    t.scale(1.0 + 0.4 * p.squash, 1.0 - p.squash)     # squash-and-stretch
-    return t
-
-
-def _poly(pts: list[tuple[float, float]]) -> QtGui.QPolygonF:
-    return QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in pts])
-
-
-def draw_figure_qt(painter: QtGui.QPainter, ox: float, oy: float, s: float, p: Pose) -> None:
-    """Draw the minifigure with QPainter. Only the figure — no backdrop."""
-    suit, hair, skin = _c(PALETTE["suit"]), _c(PALETTE["hair"]), _c(PALETTE["skin"])
-    shirt, tie, ink = _c(PALETTE["shirt"]), _c(PALETTE["tie"]), _c(PALETTE["ink"])
-
-    ink_pen = QtGui.QPen(ink)
-    ink_pen.setCosmetic(True)
-    ink_pen.setWidthF(1.1)
-    no_pen = QtGui.QPen(QtCore.Qt.PenStyle.NoPen)
-
-    def fill(poly: list[tuple[float, float]], color: QtGui.QColor, outline: bool = False) -> None:
-        painter.setPen(ink_pen if outline else no_pen)
-        painter.setBrush(color)
-        painter.drawPolygon(_poly(poly))
-
-    def limb(a: tuple[float, float], b: tuple[float, float], w: float, color: QtGui.QColor) -> None:
-        pen_o = QtGui.QPen(ink)
-        pen_o.setWidthF(w + 1.2)
-        pen_o.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen_o)
-        painter.drawLine(QtCore.QPointF(*a), QtCore.QPointF(*b))
-        pen_i = QtGui.QPen(color)
-        pen_i.setWidthF(w)
-        pen_i.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen_i)
-        painter.drawLine(QtCore.QPointF(*a), QtCore.QPointF(*b))
-
-    def line(a: tuple[float, float], b: tuple[float, float], w: float = 0.9) -> None:
-        pen = QtGui.QPen(ink)
-        pen.setWidthF(w)
-        painter.setPen(pen)
-        painter.drawLine(QtCore.QPointF(*a), QtCore.QPointF(*b))
-
-    def ellipse(cx: float, cy: float, rx: float, ry: float, color: QtGui.QColor, outline: bool = False) -> None:
-        painter.setPen(ink_pen if outline else no_pen)
-        painter.setBrush(color)
-        painter.drawEllipse(QtCore.QPointF(cx, cy), rx, ry)
-
-    body = _body_transform(ox, oy, s, p, 0.0)
-    head = _body_transform(ox, oy, s, p, p.hat_lag)
-
-    # ===== BODY =====
-    painter.setTransform(body)
-
-    # free (right) arm, behind the torso, with its counter-swing
-    limb((-13.0, 63.0), (-18.5 + p.swing, 43.0), 5.0, suit)
-    ellipse(-18.5 + p.swing, 41.0, 2.7, 2.7, skin, outline=True)
-
-    # legs: white trousers (subtle gradient for form), black shoes + ankle band.
-    # Each leg lifts (knee bends, foot rises) on its beat with a small sideways kick — the dance step.
-    grad = QtGui.QLinearGradient(QtCore.QPointF(-13, 0), QtCore.QPointF(13, 0))
-    grad.setColorAt(0.0, _c("#dcdcd8"))
-    grad.setColorAt(0.55, _c(PALETTE["suit"]))
-    grad.setColorAt(1.0, _c("#ffffff"))
-    lift_amp = 7.0
-    for sx in (-1, 1):
-        x0, x1 = sorted((sx * 1.4, sx * 12.8))
-        lift = max(0.0, (p.step if sx < 0 else -p.step)) * lift_amp
-        kick = lift * 0.35 * sx
-        x0 += kick
-        x1 += kick
-        painter.setPen(ink_pen)
-        painter.setBrush(QtGui.QBrush(grad))
-        painter.drawPolygon(_poly([(x0, 5 + lift), (x1, 5 + lift), (x1, 36), (x0, 36)]))
-        fill([(x0, 0 + lift), (x1, 0 + lift), (x1, 5 + lift), (x0, 5 + lift)], hair, outline=True)   # shoe
-        fill([(x0, 8 + lift), (x1, 8 + lift), (x1, 11 + lift), (x0, 11 + lift)], hair)              # ankle band
-
-    # torso: white jacket (left-lit gradient), blue shirt V, white tie, lapels, belt
-    painter.setPen(ink_pen)
-    painter.setBrush(QtGui.QBrush(grad))
-    painter.drawPolygon(_poly([(-14.0, 36), (14.0, 36), (16.0, 64), (-16.0, 64)]))
-    fill([(-6.8, 64), (6.8, 64), (0, 44)], shirt)
-    fill([(-2.1, 63), (2.1, 63), (1.3, 45), (-1.3, 45)], tie, outline=True)
-    line((-6.8, 64), (-1.8, 45), 0.8)
-    line((6.8, 64), (1.8, 45), 0.8)
-    line((-14.4, 39.5), (14.4, 39.5), 0.9)
-
-    # glove arm, raising with the dance
-    rx = 17.5 + 2.0 * (1 - p.arm)
-    ry = 43.0 + (77.0 - 43.0) * p.arm
-    limb((13.0, 63.0), (rx, ry), 5.0, suit)
-    ellipse(rx, ry - 1.5, 2.9, 2.9, _c("#ffffff"), outline=True)
-
-    # ===== HEAD (follows with the hat lag) =====
-    painter.setTransform(head)
-    fill([(-3.4, 63), (3.4, 63), (3.4, 67), (-3.4, 67)], skin, outline=True)   # neck
-    painter.setPen(ink_pen)
-    painter.setBrush(skin)
-    painter.drawRoundedRect(QtCore.QRectF(-8.6, 66.5, 17.2, 18.5), 3.2, 3.2)    # face
-    painter.setPen(no_pen)
-    painter.setBrush(_c("#e3c6a2"))
-    painter.drawRoundedRect(QtCore.QRectF(-8.6, 66.5, 7.6, 18.5), 3.0, 3.0)     # cheek shade
-    for sx in (-1, 1):
-        ellipse(sx * 3.3, 77.5, 1.05, 1.3, ink)                                # eye
-        line((sx * 5.0, 80.4), (sx * 1.9, 81.1), 1.0)                          # brow
-    line((-2.3, 72.6), (2.3, 72.6), 0.9)                                        # mouth
-
-    # hair: fringe + a lock down each side
-    fill([(-8.7, 82.0), (8.7, 82.0), (8.7, 85.2), (-8.7, 85.2)], hair)
-    fill([(-8.5, 84.5), (-11.4, 81.0), (-12.0, 73.0), (-9.6, 68.5), (-7.8, 71.0), (-8.5, 77.0)], hair)
-    fill([(8.5, 84.5), (11.4, 81.0), (12.0, 74.0), (10.0, 70.0), (8.0, 72.5), (8.5, 78.0)], hair)
-
-    # fedora: wide brim, black band, pinched crown
-    ellipse(0, 85.4, 21.0, 3.6, suit, outline=True)
-    ellipse(0, 86.2, 20.0, 1.9, _c("#dedede"))
-    fill([(-11.0, 85.6), (11.0, 85.6), (11.0, 89.0), (-11.0, 89.0)], hair)
-    fill([(-11.0, 88.8), (-9.6, 95.2), (-5.4, 97.4), (-1.9, 95.8), (2.0, 97.6), (5.8, 97.4),
-          (9.8, 95.0), (11.0, 88.8)], suit, outline=True)
-
-    painter.resetTransform()
+def draw_prims_qt(painter: QtGui.QPainter, prims: list[dict[str, Any]], ox: float, oy: float, s: float) -> None:
+    """Draw avatar prims (figure space, y up; :func:`~evalloop.session.avatars.pose_prims`) with QPainter,
+    feet at (``ox``, ``oy``), scaled by ``s``."""
+    for prim in prims:
+        pts = prim["p"]
+        xy = [QtCore.QPointF(ox + pts[i] * s, oy - pts[i + 1] * s) for i in range(0, len(pts), 2)]
+        if prim["k"] == "poly":
+            if prim["o"]:
+                pen = QtGui.QPen(_c(prim["o"]))
+                pen.setWidthF(max(0.6, prim["w"] * s))
+                pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(pen)
+            else:
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(_c(prim["f"]) if prim["f"] else QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(QtGui.QPolygonF(xy))
+        else:
+            pen = QtGui.QPen(_c(prim["c"]))
+            pen.setWidthF(max(0.5, prim["w"] * s))
+            pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap if prim["r"] else QtCore.Qt.PenCapStyle.FlatCap)
+            painter.setPen(pen)
+            painter.drawLine(xy[0], xy[1])
 
 
 class _Pet(QtWidgets.QWidget):
@@ -186,9 +84,11 @@ class _Pet(QtWidgets.QWidget):
         super().__init__(
             None,
             QtCore.Qt.WindowType.FramelessWindowHint
-            | QtCore.Qt.WindowType.WindowStaysOnTopHint
-            | QtCore.Qt.WindowType.WindowDoesNotAcceptFocus,
+            | QtCore.Qt.WindowType.WindowStaysOnTopHint,
         )
+        # It shows without taking focus (so the editor keeps it), but clicking it gives it the keys
+        # (Esc, C, D, P, R); a window that never accepts focus never receives a key press at all.
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.ClickFocus)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
@@ -210,6 +110,8 @@ class _Pet(QtWidgets.QWidget):
         # subprocess (evalloop.session.consent_popup) whenever the session has a request waiting.
         self._popup_proc: subprocess.Popen[bytes] | None = None
         self._popup_after = 0.0
+        self._animator = Animator()
+        self._last = time.monotonic()
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self._tick)
@@ -247,10 +149,13 @@ class _Pet(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         state = self._poller.state
-        t = time.monotonic() - self._t0
+        now = time.monotonic()
+        t, dt, self._last = now - self._t0, now - self._last, now
         self._draw_cloud(painter, state, t)
         ox, oy = self._w / 2.0, self._h - 6.0
-        draw_figure_qt(painter, ox, oy, self._scale, pose(state, t))
+        character, dance, skin, outfit = pet_of(self._poller.data.get("avatar"))
+        channels = self._animator.advance(dt, catalog()["dances"][dance], state)
+        draw_prims_qt(painter, pose_prims(character, channels, skin=skin, outfit=outfit), ox, oy, self._scale)
 
     def _draw_cloud(self, painter: QtGui.QPainter, state: str, t: float) -> None:
         # Always on: "testing X…" while a run is in flight, else the last file graded and its result,
@@ -274,7 +179,7 @@ class _Pet(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(accent, 1.0))
         painter.drawEllipse(QtCore.QPointF(self._w / 2 - 1, 33), 3.0, 3.5)
 
-    # --- interaction: drag to move, click to toggle the panel, Esc to quit ---
+    # --- interaction: drag to move, click to chat, R for the panel, P for permissions, Esc to quit ---
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.RightButton:
             self._quit()
@@ -297,11 +202,27 @@ class _Pet(QtWidgets.QWidget):
     def mouseReleaseEvent(self, _event: QtGui.QMouseEvent) -> None:
         self._drag_off = None
         if not self._moved:
-            if self._panel.isVisible():
-                self._panel.hide()
-            else:
-                self._panel.place(self)
-                self._panel.show()
+            self._open_chat()
+
+    def _toggle_panel(self) -> None:
+        if self._panel.isVisible():
+            self._panel.hide()
+        else:
+            self._panel.place(self)
+            self._panel.show()
+
+    def _open_chat(self) -> None:
+        """The chat is Tk, so it runs as its own process beside the pet. One at a time."""
+        proc = getattr(self, "_chat_proc", None)
+        if proc is not None and proc.poll() is None:
+            return
+        pos = self.frameGeometry().topLeft()
+        self._chat_proc = subprocess.Popen(self._chat_command(pos.x(), pos.y()))
+
+    def _chat_command(self, x: int, y: int) -> list[str]:
+        url = QtCore.QUrl(self._dashboard_url)
+        return [sys.executable, "-m", "evalloop.session.chat_popup", "--host", url.host() or "127.0.0.1",
+                "--port", str(url.port(7420)), "--x", str(x), "--y", str(y)]
 
     def mouseDoubleClickEvent(self, _event: QtGui.QMouseEvent) -> None:
         webbrowser.open(self._dashboard_url)   # the full physics dashboard in the browser
@@ -311,6 +232,28 @@ class _Pet(QtWidgets.QWidget):
             self._quit()
         elif event.key() == QtCore.Qt.Key.Key_P:
             self._open_permissions()
+        elif event.key() == QtCore.Qt.Key.Key_R:
+            self._toggle_panel()
+        elif event.key() in (QtCore.Qt.Key.Key_C, QtCore.Qt.Key.Key_D):
+            self._switch("character" if event.key() == QtCore.Qt.Key.Key_C else "dance")
+
+    def _switch(self, what: str) -> None:
+        """The next character or dance for the pet, saved by the session so the page follows."""
+        choice = cycle(self._poller.data.get("avatar"), what)
+        self._poller.data = {**self._poller.data, "avatar": choice}  # show it now; the next poll confirms
+        url = QtCore.QUrl(self._dashboard_url)
+        endpoint = f"http://{url.host() or '127.0.0.1'}:{url.port(7420)}/avatar"
+
+        def send() -> None:
+            request = urllib.request.Request(
+                endpoint, data=json.dumps({"avatar": choice}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "X-EvalLoop-Bot": "1"}, method="POST")
+            try:
+                urllib.request.urlopen(request, timeout=3).close()
+            except OSError:
+                pass
+
+        threading.Thread(target=send, daemon=True).start()
 
 
 class _Panel(QtWidgets.QWidget):

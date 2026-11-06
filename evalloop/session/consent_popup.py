@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 
-__all__ = ["BotClient", "ConsentUI", "main"]
+__all__ = ["Async", "BotClient", "ConsentUI", "main"]
 
 _BG = "#15171d"
 _CARD = "#1b1e26"
@@ -72,6 +72,15 @@ class BotClient:
     def revoke(self, key: str) -> Json:
         return self._post("/consent/revoke", {"key": key})
 
+    def watch(self, path: str) -> Json:
+        return self._post("/watch", {"path": path})
+
+    def pause(self) -> Json:
+        return self._post("/pause", {})
+
+    def set_avatar(self, avatar: Json) -> Json:
+        return self._post("/avatar", {"avatar": avatar})
+
 
 def _consent(data: Json) -> Json:
     raw = data.get("consent")
@@ -82,7 +91,7 @@ def _items(value: object) -> list[Json]:
     return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
 
 
-class _Async:
+class Async:
     """Runs blocking calls off the Tk thread and delivers their results on it."""
 
     def __init__(self, master: tk.Misc) -> None:
@@ -289,10 +298,13 @@ class _PermissionsWindow:
 class ConsentUI:
     """Shows the head of the pending queue as a popup and hosts the Permissions view, on ``master``."""
 
-    def __init__(self, master: tk.Misc, client: BotClient) -> None:
+    def __init__(self, master: tk.Misc, client: BotClient, *, prompt: bool = True) -> None:
+        # prompt=False: host the Permissions view only (the chat process does this, so it never
+        # duplicates the popups the pet already shows)
+        self._prompt = prompt
         self._master = master
         self._client = client
-        self._async = _Async(master)
+        self._async = Async(master)
         self._popup: _Popup | None = None
         self._permissions: _PermissionsWindow | None = None
         self._answered: set[str] = set()  # pressed, reply not yet reflected in status.json
@@ -313,7 +325,7 @@ class ConsentUI:
         if self._popup is not None and self._popup.key not in keys and self._popup.key not in self._answered:
             self._popup.close()  # resolved elsewhere (another bot, or the CLI)
             self._popup = None
-        if self._popup is None:
+        if self._popup is None and self._prompt:
             waiting = [p for p in pending if str(p.get("key")) not in self._answered]
             if waiting:
                 self._popup = _Popup(self._master, waiting[0], self._submit, len(waiting))
