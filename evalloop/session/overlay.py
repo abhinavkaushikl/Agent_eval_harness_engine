@@ -9,7 +9,9 @@ No window chrome anywhere — a frameless, transparent, always-on-top Tkinter wi
   plank — the Smooth Criminal lean — continuously rather than in steps;
 * **a thought cloud above his head** naming what he is testing right now, while he is active;
 * **a panel**, toggled by clicking him, that fades in beside him with the live eval report — drawn
-  natively in Tk, never a browser.
+  natively in Tk, never a browser;
+* **the permission popup** (:mod:`evalloop.session.consent_popup`, EL-018) whenever the session is
+  waiting to be allowed to open an endpoint, and the **Permissions view** on right-click or ``p``.
 
 Tkinter must run on the main thread and needs a display, so the poll runs in a daemon thread and
 hands the main thread plain data. The geometry (:func:`pose`, the figure's points) is pure and
@@ -370,6 +372,9 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
     transparent = _make_transparent(root, canvas)
 
     panel = _Panel(poller, transparent=transparent)
+    from evalloop.session.consent_popup import BotClient, ConsentUI  # Tk too; same main loop, never blocks
+
+    consent = ConsentUI(root, BotClient(host, port))
     drag = {"x": 0, "y": 0, "moved": False}
 
     def press(e: "tk.Event[tk.Misc]") -> None:
@@ -393,7 +398,10 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
     canvas.bind("<Button-1>", press)
     canvas.bind("<B1-Motion>", motion)
     canvas.bind("<ButtonRelease-1>", release)
+    for button in ("<Button-2>", "<Button-3>", "<Control-Button-1>"):  # right-click on macOS / elsewhere
+        canvas.bind(button, lambda _e: consent.open_permissions())
     root.bind("<Escape>", lambda _e: shutdown())
+    root.bind("p", lambda _e: consent.open_permissions())
 
     frame = {"n": 0}
 
@@ -416,6 +424,8 @@ def run_overlay(*, host: str = "127.0.0.1", port: int = 7420, poll: float = 1.5,
         canvas.delete("all")
         draw_cloud(state, accent)
         draw_figure(canvas, ox, oy, scale, pose(state, t), accent)
+        if frame["n"] % 15 == 0:                   # twice a second: a permission waiting? show it
+            consent.update(poller.data)
         frame["n"] += 1
         panel.refresh()
         root.after(33, draw)
@@ -570,4 +580,4 @@ class _Panel:
             text(W / 2, y + 20, "Nothing evaluated yet", "#7d828e", 11, anchor="center")
             text(W / 2, y + 40, "edit a file — he'll get to work", "#5b5e68", 10, anchor="center")
 
-        text(W / 2, H - 22, "click him to close  ·  drag to move", "#4e525c", 9, anchor="center")
+        text(W / 2, H - 22, "click: close  ·  right-click: permissions  ·  drag", "#4e525c", 9, anchor="center")

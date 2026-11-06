@@ -10,3 +10,5 @@ dist/
 .coverage
 htmlcov/
 .DS_Store
+# EvalLoop's local state: remembered permission approvals (EL-018), per machine
+.evalloop/

@@ -66,6 +66,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="when a tick has failures, also run the repo's own pytest once OUTSIDE the sandbox; a failure "
         "that passes there is shown inconclusive (environment), not as a problem",
     )
+    start.add_argument("--max-rows", type=int, default=None, help="row cap each permission request asks for (default: none set)")
+    start.add_argument("--max-seconds", type=float, default=None, help="time cap each permission request asks for (default: none set)")
+
+    consents = sub.add_parser("consents", help="list or revoke the approvals the bot remembers for a repo")
+    consents_sub = consents.add_subparsers(dest="action", required=True)
+    clist = consents_sub.add_parser("list", help="show the remembered approvals")
+    clist.add_argument("path", nargs="?", default=".", help="the repository (default: .)")
+    crevoke = consents_sub.add_parser("revoke", help="forget one approval (by endpoint), or all of them")
+    crevoke.add_argument("endpoint", nargs="?", default=None, help="the endpoint, as `consents list` shows it")
+    crevoke.add_argument("--all", action="store_true", help="forget every remembered approval")
+    crevoke.add_argument("--path", default=".", help="the repository (default: .)")
 
     bot = sub.add_parser("bot", help="open the floating desktop bot, connected to a running `start` session")
     bot.add_argument("--host", default="127.0.0.1", help="host the session dashboard is served on")
@@ -83,6 +94,49 @@ def _print_result(result: RunResult, stream: object) -> None:
             write(f"    - {line}\n")
     for line in result.skipped:
         write(f"  skipped: {line}\n")
+
+
+def _consents(args: argparse.Namespace) -> int:
+    """`evalloop consents list|revoke`: the remembered approvals, read and edited in the store."""
+    import datetime
+
+    from evalloop.capability.consent_store import store_for
+
+    path = args.path
+    store = store_for(path)
+    records = store.load()
+    if store.problem:
+        sys.stdout.write(f"  warning: {store.problem}\n")
+    if args.action == "list":
+        sys.stdout.write(f"EvalLoop consents: {store.path}\n")
+        if not records:
+            sys.stdout.write("  nothing remembered; the bot will ask before connecting to anything\n")
+        for r in records:
+            when = datetime.datetime.fromtimestamp(r.granted_at).strftime("%Y-%m-%d %H:%M")
+            until = (
+                datetime.datetime.fromtimestamp(r.expires_at).strftime("%Y-%m-%d %H:%M")
+                if r.expires_at is not None else "no expiry"
+            )
+            sys.stdout.write(f"  - {r.endpoint or '(any endpoint)'}  [{r.tool.value}]\n")
+            sys.stdout.write(f"      approved by {r.granted_by} on {when}, {until}; {r.reason}\n")
+            if r.credential_source:
+                sys.stdout.write(f"      credential source: {r.credential_source} (the value is never stored)\n")
+        return 0
+    if args.all:
+        count = store.clear()
+        sys.stdout.write(f"  forgot {count} approval{'s' if count != 1 else ''}\n")
+        return 0
+    if args.endpoint is None:
+        sys.stderr.write("evalloop consents revoke: name an endpoint (see `evalloop consents list`) or pass --all\n")
+        return 2
+    matches = [r for r in records if r.endpoint == args.endpoint]
+    if not matches:
+        sys.stdout.write(f"  no remembered approval for {args.endpoint!r}\n")
+        return 1
+    for r in matches:
+        store.remove(r.tool, r.endpoint)
+    sys.stdout.write(f"  forgot {args.endpoint}; a running session stops using it on its next tick\n")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -138,7 +192,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sys.stdout.write("  authoring: ON — a file with no test gets one written for it\n")
             except AuthoringUnavailable as exc:
                 sys.stdout.write(f"  authoring: OFF — {exc}\n")
-        session = Session(args.path, store_dir=args.store, author=author, calibrate_native=args.calibrate_native)
+        from evalloop.capability.broker import Caps
+
+        session = Session(
+            args.path, store_dir=args.store, author=author, calibrate_native=args.calibrate_native,
+            caps=Caps(max_rows=args.max_rows, max_seconds=args.max_seconds),
+        )
         server = None if args.no_serve else session.serve(port=args.port)
         if server is not None:
             sys.stdout.write(f"EvalLoop watching {args.path}\n  dashboard: http://127.0.0.1:{args.port}/  (Ctrl-C to stop)\n")
@@ -177,6 +236,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             session.stop()
             sys.stdout.write("\nstopped.\n")
         return 0
+    if args.command == "consents":
+        return _consents(args)
     if args.command == "bot":
         from evalloop.session.overlay import run_overlay
 

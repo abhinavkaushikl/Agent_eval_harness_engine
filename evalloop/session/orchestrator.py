@@ -5,6 +5,14 @@ last time, run the real ``evalloop.run.check`` loop and append a :class:`RunCard
 is that tick on an interval; ``serve`` exposes the state and the dashboard over a stdlib HTTP server
 so the page (and the mascot) update themselves. Nothing here grades anything on its own — it only
 drives the engine that M0/M1 already built.
+
+Consent (decision EL-018): before a tick opens anything, it asks the :class:`ConsentGate`. Endpoints
+with a saved or session approval run silently; new or expired ones are queued for the bot's
+permission popup and published in ``status.json`` under ``consent``. The bot answers by POSTing to
+``/consent/decide`` or ``/consent/revoke``. Those routes need ``Content-Type: application/json`` and
+an ``X-EvalLoop-Bot`` header, which a web page cannot send to this port without a CORS preflight
+the server never answers, so a browser tab cannot approve anything. Each tick also re-reads the
+consent store, so ``evalloop consents revoke`` takes effect on a running session.
 """
 
 from __future__ import annotations
@@ -12,16 +20,18 @@ from __future__ import annotations
 import json
 import threading
 import time
-from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
+from evalloop.capability.broker import CapabilityBroker, Caps
+from evalloop.capability.consent_store import store_for
 from evalloop.classify.heuristics import classify_source
 from evalloop.grade.agent_scaffold import SCAFFOLD_SUFFIX, scaffold_agent_eval
 from evalloop.grade.dbcheck import check_file, find_sqlite
 from evalloop.grade.specs import SPEC_SUFFIX, grade_spec_file
 from evalloop.run import Author, RunResult, check
+from evalloop.session.consent import Choice, ConsentGate, Resolution, discovered_requests, sqlite_request
 from evalloop.session.dashboard import dashboard_html
 from evalloop.session.poller import Snapshot, changed_files, snapshot
 from evalloop.session.state import CaseCard, MascotState, RunCard, SessionState, worst_outcome
@@ -53,8 +63,14 @@ class Session:
         author: Author | None = None,
         calibrate_native: bool = False,
         clock: Callable[[], float] = time.time,
+        consent: ConsentGate | None = None,
+        caps: Caps | None = None,
     ) -> None:
         self.root = str(root)
+        # Saved approvals load from <root>/.evalloop/consents.json; caps are what each request asks
+        # for (EL-006: never defaulted, so unset unless the operator passes them).
+        self.consent = consent if consent is not None else ConsentGate(CapabilityBroker(store=store_for(root)))
+        self._caps = caps if caps is not None else Caps()
         self._store = str(store_dir)
         # calibrate_native: a tick whose sandbox run has failures also runs the repo's own pytest once,
         # unsandboxed, so a failure only the sandbox causes is withheld (evalloop.grade.native)
@@ -73,8 +89,21 @@ class Session:
         trigger = changed_files(self._seen, current)
         first_run = not self._seen
         self._seen = current
+        with self._lock:
+            self.consent.broker.sync()  # pick up approvals revoked or added outside this session
+            recheck, self.consent.changed = self.consent.changed, False
         if not trigger and not first_run:
-            return None
+            # nothing changed on disk, but a permission just granted unblocks the waiting DB check
+            if not recheck:
+                return None
+            unblocked = self._consented_dbcheck((), current)
+            for db_card in unblocked:
+                self._record(db_card)
+            return self._conclude(unblocked)
+        if first_run or trigger:
+            requests = discovered_requests(self.root, self._caps)
+            with self._lock:
+                self.consent.observe(requests)
         with self._lock:
             # name the in-flight target before the run, so the bot's thought cloud can show it
             self.state.current = trigger or ("the repository",)
@@ -101,12 +130,9 @@ class Session:
 
         # Auto DB-access validation: a changed .py that issues SQL, and a SQLite db in the tree -> run
         # the no-oracle layers (read-only / schema / executes / shape) against a read-only snapshot.
-        db = find_sqlite(self.root)
-        if db is not None:
-            for rel in sorted(f for f in (py_trigger or tuple(current)) if f.endswith(".py")):
-                card = self._dbcheck(rel, db)
-                if card is not None:
-                    emit(card)
+        # Only once the developer has allowed it: the popup asks first (EL-018).
+        for db_card in self._consented_dbcheck(py_trigger, current):
+            emit(db_card)
 
         # Agent files cannot be auto-graded yet (no resettable env / trajectory capture), and the
         # classifier can only flag them. So instead of silently ignoring one, drop a starter eval
@@ -151,6 +177,33 @@ class Session:
     def _record(self, card: RunCard) -> None:
         with self._lock:
             self.state.record(card)
+
+    def _consented_dbcheck(self, py_trigger: tuple[str, ...], current: Snapshot) -> list[RunCard]:
+        """Run the DB check over the repo's SQLite file, if one exists and its opening is allowed."""
+        db = find_sqlite(self.root)
+        if db is None:
+            return []
+        request = sqlite_request(self.root, db, self._caps)
+        with self._lock:
+            allowed = bool(self.consent.observe([request]))
+        if not allowed:
+            return []  # waiting in the popup, or denied this session: nothing is opened
+        cards: list[RunCard] = []
+        for rel in sorted(f for f in (py_trigger or tuple(current)) if f.endswith(".py")):
+            card = self._dbcheck(rel, db)
+            if card is not None:
+                cards.append(card)
+        return cards
+
+    def decide(self, key: str, choice: Choice, typed: str = "") -> Resolution:
+        """Apply the bot's answer to one pending permission request."""
+        with self._lock:
+            return self.consent.resolve(key, choice, typed)
+
+    def revoke(self, key: str) -> bool:
+        """Withdraw an approval from the Permissions view (also forgets it in the store)."""
+        with self._lock:
+            return self.consent.revoke(key)
 
     def _dbcheck(self, rel: str, db: "Path") -> RunCard | None:
         """Auto-validate a data-access .py's SQL, read-only, against the snapshot. None if no SQL."""
@@ -258,7 +311,9 @@ class Session:
 
     def snapshot_json(self) -> bytes:
         with self._lock:
-            return json.dumps(self.state.to_json()).encode("utf-8")
+            payload = self.state.to_json()
+            payload["consent"] = self.consent.to_json()
+            return json.dumps(payload).encode("utf-8")
 
     def run_forever(self, *, interval: float = 2.0) -> None:
         """Tick every ``interval`` seconds until :meth:`stop`. This is the blocking session loop."""
@@ -287,7 +342,43 @@ class Session:
                 else:
                     self.send_error(404)
                     return
-                self.send_response(200)
+                self._reply(200, body, ctype)
+
+            def do_POST(self) -> None:  # noqa: N802
+                # A browser page cannot set this header cross-origin without a preflight we never
+                # answer, so only the bot (or a deliberate local client) can approve or revoke.
+                if self.headers.get("X-EvalLoop-Bot") is None or not (
+                    self.headers.get("Content-Type", "").startswith("application/json")
+                ):
+                    self.send_error(403, "consent routes need the bot's header and a JSON body")
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    data = json.loads(self.rfile.read(min(length, 65536)).decode("utf-8") or "{}")
+                    key = str(data["key"])
+                except (ValueError, KeyError, TypeError):
+                    self.send_error(400, "expected a JSON object with a 'key'")
+                    return
+                if self.path == "/consent/decide":
+                    try:
+                        choice = Choice(str(data.get("choice", "")))
+                    except ValueError:
+                        self.send_error(400, "choice must be allow_once, allow_remember or deny")
+                        return
+                    result = session.decide(key, choice, str(data.get("typed", "")))
+                    reply: dict[str, object] = {
+                        "accepted": result.accepted, "granted": result.granted,
+                        "remembered": result.remembered, "message": result.message,
+                    }
+                elif self.path == "/consent/revoke":
+                    reply = {"revoked": session.revoke(key)}
+                else:
+                    self.send_error(404)
+                    return
+                self._reply(200, json.dumps(reply).encode("utf-8"), "application/json")
+
+            def _reply(self, status: int, body: bytes, ctype: str) -> None:
+                self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

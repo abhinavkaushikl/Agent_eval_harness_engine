@@ -16,6 +16,8 @@ report panel; drag to move; Esc to dismiss.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
 import webbrowser
 from typing import Any
@@ -204,15 +206,42 @@ class _Pet(QtWidgets.QWidget):
         self._panel = _Panel(poller)
         self._drag_off: QtCore.QPoint | None = None
         self._moved = False
+        # The permission popup is Tk, which cannot share this process with Qt, so it runs as a small
+        # subprocess (evalloop.session.consent_popup) whenever the session has a request waiting.
+        self._popup_proc: subprocess.Popen[bytes] | None = None
+        self._popup_after = 0.0
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self._tick)
         timer.start(16)  # ~60fps
 
     def _tick(self) -> None:
+        self._consent_tick()
         self.update()
         if self._panel.isVisible():
             self._panel.update()
+
+    def _popup_command(self, *extra: str) -> list[str]:
+        url = QtCore.QUrl(self._dashboard_url)
+        return [sys.executable, "-m", "evalloop.session.consent_popup",
+                "--host", url.host() or "127.0.0.1", "--port", str(url.port(7420)), *extra]
+
+    def _consent_tick(self) -> None:
+        """Launch the popup process when a permission is waiting and none is open. Never blocks."""
+        if self._popup_proc is not None and self._popup_proc.poll() is None:
+            return
+        if self._popup_proc is not None:
+            self._popup_proc = None
+            self._popup_after = time.monotonic() + 2.0  # let status.json catch up before relaunching
+        if time.monotonic() < self._popup_after:
+            return
+        consent = self._poller.data.get("consent")
+        pending = consent.get("pending") if isinstance(consent, dict) else None
+        if isinstance(pending, list) and pending:
+            self._popup_proc = subprocess.Popen(self._popup_command())
+
+    def _open_permissions(self) -> None:
+        subprocess.Popen(self._popup_command("--permissions"))
 
     def paintEvent(self, _event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
@@ -280,6 +309,8 @@ class _Pet(QtWidgets.QWidget):
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         if event.key() == QtCore.Qt.Key.Key_Escape:
             self._quit()
+        elif event.key() == QtCore.Qt.Key.Key_P:
+            self._open_permissions()
 
 
 class _Panel(QtWidgets.QWidget):

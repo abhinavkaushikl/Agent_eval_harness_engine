@@ -22,6 +22,16 @@ secrets-manager path), never a value. Resolving a source to a secret is the capa
 module reads the environment; when ``evalloop/connect/`` lands it is covered by the same scan). This
 module reads no environment variable itself.
 
+Remembered approvals
+--------------------
+Decision EL-018. Given a :class:`~evalloop.capability.consent_store.ConsentStore`, the broker loads
+the saved approvals when it is built, ``grant(..., remember=True)`` writes the approval through to
+the file, and ``revoke`` removes it from the file too. A grant without ``remember`` lives in memory
+for this session only ("allow once"). :meth:`CapabilityBroker.sync` re-reads the file, so an approval
+revoked from the CLI while a session runs stops working on the session's next tick. The store refuses
+production-suspected endpoints and anything that looks like a credential value, and the broker
+passes that refusal on before it grants anything.
+
 Budget
 ------
 The session budget reuses EL-209's :class:`~evalloop.capability.router.CostLedger` — one ledger, one
@@ -35,9 +45,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from evalloop.capability.router import BudgetExhausted, CostLedger
 from evalloop.vocab import Tool
+
+if TYPE_CHECKING:
+    from evalloop.capability.consent_store import ConsentRecord, ConsentStore
 
 __all__ = ["Availability", "Caps", "CapabilityBroker", "CapabilityError", "Grant"]
 
@@ -78,6 +92,7 @@ class Grant:
     expires_at: float | None  # monotonic deadline; None = no expiry
     caps: Caps
     credential_source: str | None = None  # the *source* of a secret, never the secret
+    remembered: bool = False  # saved in the consent store (EL-018), not just held for this session
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,10 +111,44 @@ def _key(tool: Tool, endpoint: str | None) -> tuple[Tool, str | None]:
 class CapabilityBroker:
     """Holds the session's grants and answers availability. Nothing is granted until it is granted."""
 
-    def __init__(self, *, budget_usd: Decimal | None = None, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        *,
+        budget_usd: Decimal | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        store: ConsentStore | None = None,
+    ) -> None:
         self._grants: dict[tuple[Tool, str | None], Grant] = {}
         self._clock = clock
         self._ledger = CostLedger(budget_usd) if budget_usd is not None else None
+        self._store = store
+        self.sync()
+
+    @property
+    def store(self) -> ConsentStore | None:
+        return self._store
+
+    def sync(self) -> None:
+        """Make the remembered grants match the store: load new ones, drop ones revoked elsewhere."""
+        if self._store is None:
+            return
+        saved = {record.key: record for record in self._store.load()}
+        for key, grant in list(self._grants.items()):
+            if grant.remembered and key not in saved:
+                del self._grants[key]
+        for key, record in saved.items():
+            current = self._grants.get(key)
+            if current is None or current.remembered:
+                self._grants[key] = self._from_record(record)
+
+    def _from_record(self, record: ConsentRecord) -> Grant:
+        expires_at = None
+        if record.expires_at is not None and self._store is not None:
+            expires_at = self._clock() + (record.expires_at - self._store.now())
+        return Grant(
+            record.tool, record.endpoint, record.granted_by, record.reason, expires_at, record.caps,
+            record.credential_source, remembered=True,
+        )
 
     # -- consent ----------------------------------------------------------------
 
@@ -113,8 +162,16 @@ class CapabilityBroker:
         expires_in: float | None = None,
         caps: Caps | None = None,
         credential_source: str | None = None,
+        remember: bool = False,
+        posture: str | None = None,
     ) -> Grant:
-        """Record explicit consent for ``tool`` (optionally one endpoint). The only way to make it granted."""
+        """Record explicit consent for ``tool`` (optionally one endpoint). The only way to make it granted.
+
+        ``remember=True`` also saves it to the consent store, so later sessions start with it granted.
+        The store refuses a production-suspected ``posture`` and a credential value; that refusal
+        (:class:`~evalloop.capability.consent_store.ConsentStoreError`) is raised before anything is
+        granted.
+        """
         if not isinstance(tool, Tool):
             raise CapabilityError(f"{tool!r} is not a Tool")
         if not granted_by.strip() or not reason.strip():
@@ -122,13 +179,32 @@ class CapabilityBroker:
         if expires_in is not None and not (isinstance(expires_in, (int, float)) and expires_in > 0):
             raise CapabilityError(f"expires_in must be a positive number of seconds or None, got {expires_in!r}")
         expires_at = None if expires_in is None else self._clock() + expires_in
-        record = Grant(tool, endpoint, granted_by, reason, expires_at, caps or Caps(), credential_source)
+        if remember:
+            if self._store is None:
+                raise CapabilityError("remember=True needs a consent store; this broker has none")
+            from evalloop.capability.consent_store import ConsentRecord
+
+            wall = self._store.now()
+            self._store.save(
+                ConsentRecord(
+                    tool, endpoint, granted_by, reason, wall,
+                    None if expires_in is None else wall + expires_in, caps or Caps(), credential_source, posture,
+                )
+            )
+        record = Grant(tool, endpoint, granted_by, reason, expires_at, caps or Caps(), credential_source, remember)
         self._grants[_key(tool, endpoint)] = record
         return record
 
     def revoke(self, tool: Tool, *, endpoint: str | None = None) -> bool:
-        """Withdraw a grant. Returns whether one was there to withdraw."""
-        return self._grants.pop(_key(tool, endpoint), None) is not None
+        """Withdraw a grant, and forget it in the store too. Returns whether one was there to withdraw."""
+        held = self._grants.pop(_key(tool, endpoint), None) is not None
+        saved = self._store.remove(tool, endpoint) if self._store is not None else False
+        return held or saved
+
+    def grants(self) -> tuple[Grant, ...]:
+        """Every live grant, remembered and session-only, in a stable order."""
+        live = [g for g in list(self._grants.values()) if self.check(g.tool, endpoint=g.endpoint).granted]
+        return tuple(sorted(live, key=lambda g: (g.tool.value, g.endpoint or "")))
 
     # -- the question everything asks -------------------------------------------
 
