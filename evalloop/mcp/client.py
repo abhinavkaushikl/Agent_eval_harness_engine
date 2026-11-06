@@ -19,6 +19,11 @@ from evalloop.mcp.facade import (
     Content,
     Discoverable,
     McpError,
+    Prompt,
+    PromptArgument,
+    PromptLister,
+    PromptMessage,
+    PromptResult,
     ProtocolVersionMismatch,
     ProtocolViolation,
     ServerInfo,
@@ -40,7 +45,7 @@ _CLIENT_INFO: Mapping[str, str] = {"name": "evalloop", "version": "0"}
 _MAX_SKIPPED = 1000  # notifications/other frames tolerated before a response, so a chatty server can't hang us
 
 
-class StdioClient(ToolCaller, Discoverable):
+class StdioClient(ToolCaller, PromptLister, Discoverable):
     """A live connection to one MCP server over stdio. Use as a context manager; it reaps the process."""
 
     def __init__(self, process: subprocess.Popen[bytes]) -> None:
@@ -186,6 +191,49 @@ class StdioClient(ToolCaller, Discoverable):
             if not isinstance(raw, dict) or "type" not in raw:
                 raise ProtocolViolation(f"a content block is malformed: {raw!r}")
             kind = str(raw["type"])
-            text = raw.get("text") if kind == "text" else None
-            blocks.append(Content(kind=kind, text=str(text) if text is not None else None))
+            blocks.append(_content(raw))
         return ToolResult(content=tuple(blocks), is_error=bool(result.get("isError", False)))
+
+    def list_prompts(self) -> tuple[Prompt, ...]:
+        result = self._request("prompts/list")
+        prompts = result.get("prompts")
+        if not isinstance(prompts, list):
+            raise ProtocolViolation("prompts/list did not return a 'prompts' array")
+        found: list[Prompt] = []
+        for raw in prompts:
+            if not isinstance(raw, dict) or "name" not in raw:
+                raise ProtocolViolation(f"a prompt entry is malformed: {raw!r}")
+            arguments: list[PromptArgument] = []
+            for arg in raw.get("arguments") or []:
+                if not isinstance(arg, dict) or "name" not in arg:
+                    raise ProtocolViolation(f"a prompt argument is malformed: {arg!r}")
+                arguments.append(
+                    PromptArgument(
+                        name=str(arg["name"]),
+                        description=arg.get("description"),
+                        required=bool(arg.get("required", False)),
+                    )
+                )
+            found.append(Prompt(name=str(raw["name"]), description=raw.get("description"), arguments=tuple(arguments)))
+        return tuple(found)
+
+    def get_prompt(self, name: str, arguments: Mapping[str, str]) -> PromptResult:
+        result = self._request("prompts/get", {"name": name, "arguments": dict(arguments)})
+        messages_raw = result.get("messages")
+        if not isinstance(messages_raw, list):
+            raise ProtocolViolation("prompts/get result has no 'messages' array")
+        messages: list[PromptMessage] = []
+        for raw in messages_raw:
+            if not isinstance(raw, dict) or "role" not in raw or not isinstance(raw.get("content"), dict):
+                raise ProtocolViolation(f"a prompt message is malformed: {raw!r}")
+            content = raw["content"]
+            if "type" not in content:
+                raise ProtocolViolation(f"a content block is malformed: {content!r}")
+            messages.append(PromptMessage(role=str(raw["role"]), content=_content(content)))
+        return PromptResult(description=result.get("description"), messages=tuple(messages))
+
+
+def _content(raw: Mapping[str, Any]) -> Content:
+    kind = str(raw["type"])
+    text = raw.get("text") if kind == "text" else None
+    return Content(kind=kind, text=str(text) if text is not None else None)

@@ -8,7 +8,10 @@ test exercises:
 
 It validates the per-request ``_meta`` the spec requires and rejects a request missing the protocol
 version with ``-32602``. Tools: ``echo``, ``add``, ``reflect_meta`` (returns the protocol version it
-was sent, proving the client attached it), and ``boom`` (returns a JSON-RPC error).
+was sent, proving the client attached it), and ``boom`` (returns a JSON-RPC error). Prompts (EL-310):
+``summarize`` (one required argument), ``greeting`` (none, and carries a planted credential so the
+redactor is exercised over a real server) and ``picture`` (an image block, so a non-text prompt is
+skipped).
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ def _discover(mode: str) -> dict[str, object]:
         "resultType": "discover",
         META_SERVER_INFO: {"name": "reference", "version": "1.0"},
         "protocolVersions": versions,
-        "capabilities": {"tools": {}},
+        "capabilities": {"prompts": {}, "tools": {}},
     }
 
 
@@ -54,6 +57,39 @@ _TOOLS = [
     {"name": "reflect_meta", "description": "return the protocol version received", "inputSchema": {"type": "object"}},
     {"name": "boom", "description": "always errors", "inputSchema": {"type": "object"}},
 ]
+
+
+_PROMPTS = [
+    {
+        "name": "summarize",
+        "description": "summarize a document",
+        "arguments": [{"name": "document", "description": "the text to summarize", "required": True}],
+    },
+    {"name": "greeting", "description": "a fixed system greeting"},
+    {"name": "picture", "description": "an image-only prompt"},
+]
+
+
+def _get_prompt(params: dict[str, object], request_id: object, mode: str) -> dict[str, object]:
+    name = params.get("name")
+    args = params.get("arguments") or {}
+    assert isinstance(args, dict)
+    if name == "summarize":
+        if "document" not in args:
+            return _error(request_id, -32602, "missing required argument: document")
+        messages = [
+            {"role": "user", "content": {"type": "text", "text": f"Summarize in one sentence:\n{args['document']}"}}
+        ]
+    elif name == "greeting":
+        messages = [
+            {"role": "user", "content": {"type": "text", "text": "You are a helpful support agent."}},
+            {"role": "assistant", "content": {"type": "text", "text": "Use api_key=sk-test-0123456789abcdefghij to call."}},
+        ]
+    elif name == "picture":
+        messages = [{"role": "user", "content": {"type": "image", "data": "AAAA", "mimeType": "image/png"}}]
+    else:
+        return _error(request_id, -32602, f"no such prompt: {name}")
+    return _ok(request_id, {"resultType": "prompt", "description": f"the {name} prompt", "messages": messages}, mode)
 
 
 def _call(params: dict[str, object], meta: dict[str, object], request_id: object, mode: str) -> dict[str, object]:
@@ -100,6 +136,10 @@ def main() -> None:
             _send(_ok(request_id, {"resultType": "toolList", "tools": _TOOLS}, mode))
         elif method == "tools/call":
             _send(_call(params, meta, request_id, mode))
+        elif method == "prompts/list":
+            _send(_ok(request_id, {"resultType": "promptList", "prompts": _PROMPTS}, mode))
+        elif method == "prompts/get":
+            _send(_get_prompt(params, request_id, mode))
         else:
             _send(_error(request_id, -32601, f"method not found: {method}"))
 

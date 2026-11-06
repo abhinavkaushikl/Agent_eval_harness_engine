@@ -276,7 +276,7 @@ is written but **awaiting human sign-off**, so this entire track rests on an uns
 | EL-307 | MCP client connector | ✅ report | boundary only (§8) |
 | EL-308 | Postgres/MySQL over CLI | ✅ report | discovered not connected (§8) |
 | EL-309 | Vector store (Qdrant over HTTP) | ✅ report | **§5** via loopback stand-in |
-| **EL-310** | **File + prompt-registry connectors** | **❌ not built (no report)** | not exercised |
+| EL-310 | File + prompt-registry connectors | ✅ report (built 2026-11-06, after this packet's first run) | not in the Gate V done-when; outputs unchanged by it (§9) |
 | EL-311 | SQL execution grading | ✅ report | **§1, §4, §6** |
 | EL-312 | RAG recall@k + faithfulness gate | ✅ report | **§5a** |
 | EL-313 | RAG ladder stages (separate) | ✅ report | **§5b** |
@@ -314,9 +314,10 @@ claim — that cost is **not** measured here because that judge does not yet exi
    the server is gated behind Gate 3 (EL-008). This is the right call and it holds. The residual risk
    is simply that the *client* was exercised only at its seam in this packet, not against a live
    external MCP server.
-5. **EL-310 is not built**, and the whole track sits on an **unsigned Gate 1**. Neither blocks the
-   Gate V done-when ("DB + vector store discovered and validated unprompted"), but a green here does
-   not mean the track is complete.
+5. **The whole track sits on an unsigned Gate 1.** EL-310 has since been built (2026-11-06,
+   `EL-310-REPORT.md`), so every E3 code ticket now has a report, but none of it is human-approved.
+   This does not block the Gate V done-when ("DB + vector store discovered and validated
+   unprompted"). It does mean a green here is not a signed-off track.
 
 ---
 
@@ -334,6 +335,14 @@ not part of the repo that discovery scans — discovery is pointed at `examples/
 Nothing in the sample was
 softened to make the gate pass — the production endpoint, the hallucinated column, and the
 false-negative boundary are all there on purpose.)
+
+---
+
+**Re-run 2026-11-06, after EL-310 landed.** `PYTHONPATH=. python tools/gatev_gate.py` exits 0. Every
+verdict, count and interval matches the transcripts above. The only differences are presentational:
+this packet trims separator rules, rounds the Wilson bounds, and shortens some parentheticals.
+EL-310 touched `evalloop/connect/protocol.py` and `evalloop/mcp/` additively, and nothing on the Gate V
+path changed.
 
 ---
 

@@ -65,7 +65,7 @@ verbatim, and report which doc was wrong.
 | EL-307 | MCP client connector | Story | 1.5 | EL-301, EL-306 | ✅ Done ahead of 🔒G1 — `EL-307-REPORT.md` (external MCP server queried through the envelope) |
 | EL-308 | Postgres/MySQL over CLI (no driver) | Story | 1.5 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-308-REPORT.md` (psql/mysql shelled out; missing CLI = clean UNAVAILABLE) |
 | EL-309 | Vector store (Qdrant over HTTP) | Story | 1.5 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-309-REPORT.md` (urllib only; collections + embedding model enumerated) |
-| EL-310 | File + prompt-registry connectors | Story | 1 | EL-307 | Prompts and files usable as eval inputs |
+| EL-310 | File + prompt-registry connectors | Story | 1 | EL-307 | ✅ Done ahead of 🔒G1 — `EL-310-REPORT.md` (docs + prompt files + MCP prompts as eval inputs; gitignore-aware, size-capped, redacted) |
 | EL-311 | SQL execution grading (result sets) | Story | 2 | EL-306 | ✅ Done ahead of 🔒G1 — `EL-311-REPORT.md` (runs SQL vs a snapshot; never compares text) |
 | EL-312 | RAG recall@k + faithfulness gate | Story | 1.5 | EL-309 | ✅ Done ahead of 🔒G1 — `EL-312-REPORT.md` (recall@k w/ CI; faithfulness gated via requires, not unlocks) |
 | EL-313 | RAG ladder stages (separate) | Story | 2 | EL-312 | ✅ Done ahead of 🔒G1 — `EL-313-REPORT.md` (ceiling/attribution/faithfulness/robustness/unanswerable/citation, no blended score) |

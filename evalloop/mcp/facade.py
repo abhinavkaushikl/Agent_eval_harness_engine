@@ -3,7 +3,8 @@
 Nothing here names a wire concept (no JSON-RPC, no ``_meta``, no ``resultType``). EL-307, EL-310 and
 later tracks import *only* from here, so a spec revision changes ``wire.py``/``client.py`` and never
 them. The two Protocols are the seam: :class:`Discoverable` (who the server is and what it supports)
-and :class:`ToolCaller` (list and call tools). The stdio client implements both.
+and :class:`ToolCaller` (list and call tools), plus :class:`PromptLister` (list and render prompts,
+EL-310). The stdio client implements all three.
 """
 
 from __future__ import annotations
@@ -86,6 +87,40 @@ class ToolResult:
         return "".join(block.text for block in self.content if block.kind == "text" and block.text is not None)
 
 
+@dataclass(frozen=True, slots=True)
+class PromptArgument:
+    """One argument a server prompt template takes, and whether the server says it is required."""
+
+    name: str
+    description: str | None
+    required: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Prompt:
+    """A prompt template the server offers. Listing one fetches no text; ``get_prompt`` does."""
+
+    name: str
+    description: str | None
+    arguments: tuple[PromptArgument, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PromptMessage:
+    """One message of a rendered prompt: its role ('user', 'assistant') and its content block."""
+
+    role: str
+    content: Content
+
+
+@dataclass(frozen=True, slots=True)
+class PromptResult:
+    """A prompt rendered by the server with the arguments given."""
+
+    description: str | None
+    messages: tuple[PromptMessage, ...]
+
+
 @runtime_checkable
 class Discoverable(Protocol):
     """The server's identity and supported revisions (2026-07-28's ``server/discover``)."""
@@ -100,3 +135,12 @@ class ToolCaller(Protocol):
     def list_tools(self) -> tuple[Tool, ...]: ...
 
     def call_tool(self, name: str, arguments: Mapping[str, object]) -> ToolResult: ...
+
+
+@runtime_checkable
+class PromptLister(Protocol):
+    """List the prompts a server offers, and render one. The seam EL-310's prompt registry builds on."""
+
+    def list_prompts(self) -> tuple[Prompt, ...]: ...
+
+    def get_prompt(self, name: str, arguments: Mapping[str, str]) -> PromptResult: ...
