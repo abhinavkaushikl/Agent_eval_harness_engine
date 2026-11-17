@@ -410,26 +410,26 @@ Make all 20 fixtures pass. **Do not modify a fixture to match the implementation
 - [ ] T18.4 Benchmark on 5k files
 - **Done when:** detects changes in 5k files in < 20 ms.
 
-### T19 — Event buffer + debouncer
-- [ ] T19.1 Event queue
-- [ ] T19.2 Quiet-window debounce → change unit
+### [x] T19 — Event buffer + debouncer
+- [x] T19.1 Event queue
+- [x] T19.2 Quiet-window debounce → change unit
 - **Done when:** bursts collapse into single change units.
 
-### T20 — Git state reader
-- [ ] T20.1 Baseline sha, branch
-- [ ] T20.2 Staged vs committed vs working diff
+### [x] T20 — Git state reader
+- [x] T20.1 Baseline sha, branch
+- [x] T20.2 Staged vs committed vs working diff
 - **Done when:** reports baseline, staged, committed, branch.
 
-### T21 — AI transcript reader
-- [ ] T21.1 Locate Claude Code JSONL transcripts on disk
-- [ ] T21.2 Parse messages; extract stated intent
-- [ ] T21.3 Link intent to change units by time
+### [x] T21 — AI transcript reader
+- [x] T21.1 Locate Claude Code JSONL transcripts on disk
+- [x] T21.2 Parse messages; extract stated intent
+- [x] T21.3 Link intent to change units by time
 - **Done when:** extracts stated intent from disk.
 
-### T22 — Coherence detector
-- [ ] T22.1 Syntax-valid check (e.g. `ast.parse`)
-- [ ] T22.2 Quiet period + import resolution
-- [ ] T22.3 Transcript signal ("done", tests run)
+### [x] T22 — Coherence detector
+- [x] T22.1 Syntax-valid check (e.g. `ast.parse`)
+- [x] T22.2 Quiet period + import resolution
+- [x] T22.3 Transcript signal ("done", tests run)
 - **Done when:** fires on complete units, not mid-edit.
 
 ### T23 — Session orchestrator
@@ -464,10 +464,10 @@ Make all 20 fixtures pass. **Do not modify a fixture to match the implementation
 - [ ] **T27** Readiness gate + pending queue rendering. Shows "need 25, have 8" with reasons.
 - [ ] **T28** Noise floor across repeat runs. Refuses to call a within-noise delta an improvement.
 - [ ] **T29** Per-item diff report. Lists flips in both directions.
-- [ ] **T30** Diagnostics: E1 jump, E3 length, E5 ceiling, E6 floor. Flags a synthetic reward-hack scenario.
-  - [ ] T30.1 E1 jump · [ ] T30.2 E3 length · [ ] T30.3 E5 ceiling · [ ] T30.4 E6 floor · [ ] T30.5 synthetic reward-hack test
-- [ ] **T31** Journey ledger + trends. Per-field, per-slice trend lines over runs.
-- [ ] **T32** Self-canary. Detects its own degradation on a fixed known-answer set.
+- [x] **T30** Diagnostics: E1 jump, E3 length, E5 ceiling, E6 floor. Flags a synthetic reward-hack scenario.
+  - [x] T30.1 E1 jump · [x] T30.2 E3 length · [x] T30.3 E5 ceiling · [x] T30.4 E6 floor · [x] T30.5 synthetic reward-hack test
+- [x] **T31** Journey ledger + trends. Per-field, per-slice trend lines over runs.
+- [x] **T32** Self-canary. Detects its own degradation on a fixed known-answer set.
 
 ### 🔒 GATE 3
 - [ ] Refuses to report a noise-level change as a win; catches a planted reward hack.
@@ -476,12 +476,12 @@ Make all 20 fixtures pass. **Do not modify a fixture to match the implementation
 
 # MILESTONE 4 — Judge & Second Situation
 
-- [ ] **T33** Judge grader: single-criterion, named categories, reasoning-first (2d)
-- [ ] **T34** Cross-family hard assertion in router (0.5d)
-- [ ] **T35** Position swap + flip-rate tracking (1d). Unreliable above 10–15% flip rate.
-- [ ] **T36** Calibration set + Cohen's kappa + `kappa_manual ≥ 0.6` runtime gate (2d)
-  - [ ] T36.1 Collect **150–200** human gold labels, with **at least 50 fail cases** (F:27, F:36) · [ ] T36.2 kappa calc · [ ] T36.3 runtime gate (κ ≥ 0.6 to use, ≥ 0.8 to gate; flip rate > 10–15% unreliable — read these from `rule_of_thumb`, not `requires`)
-- [ ] **T37** Summarization situation: faithfulness + length companion (2d)
+- [x] **T33** Judge grader: single-criterion, named categories, reasoning-first (2d)
+- [x] **T34** Cross-family hard assertion in router (0.5d)
+- [x] **T35** Position swap + flip-rate tracking (1d). Unreliable above 10–15% flip rate.
+- [x] **T36** Calibration set + Cohen's kappa + `kappa_manual ≥ 0.6` runtime gate (2d)
+  - [x] T36.1 Collect **150–200** human gold labels, with **at least 50 fail cases** (F:27, F:36) · [x] T36.2 kappa calc · [x] T36.3 runtime gate (κ ≥ 0.6 to use, ≥ 0.8 to gate; flip rate > 10–15% unreliable — read these from `rule_of_thumb`, not `requires`)
+- [x] **T37** Summarization situation: faithfulness + length companion (2d)
 
 ### 🔒 GATE 4 *(inferred)*
 - [ ] Summarization judged end-to-end by a calibrated cross-family judge, reusing earlier components unchanged.
